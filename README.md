@@ -1,1 +1,1 @@
-# se-ales-proyecto
+# senales-proyecto
