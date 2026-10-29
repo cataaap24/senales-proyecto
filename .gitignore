@@ -1,0 +1,6 @@
+.venv/
+.history/
+__pycache__/
+*.pyc
+banco_aves.zip
+banco_piloto/

@@ -1,0 +1,20 @@
+BANCO DE CANTOS - paloma torcaza (Zenaida auriculata) vs copeton (Zonotrichia capensis)
+Fuente: xeno-canto.org (licencias Creative Commons; ver creditos.csv, citar en el informe).
+
+Formato de TODOS los archivos: WAV PCM 16 bit, mono, 22050 Hz, 5.000 s exactos (110250 muestras).
+Cada recorte es la ventana de 5 s con mas energia de canto (o varias ventanas sin solape, en la paloma).
+Los audios NO estan filtrados: el filtrado (pasa-altos) se hace en el proyecto. Solo se normalizaron a pico 0.9.
+
+entrenamiento/  66 por especie -> para calcular espectros promedio y vectores de umbrales de energia.
+prueba/         12 por especie -> NUNCA usarlos para entrenar. Simulan la senal "en tiempo real".
+
+Paloma: xeno-canto solo tiene ~40 grabaciones limpias de su canto, asi que de cada grabacion se tomaron
+hasta 4 recortes distintos (sufijo _r1.._r4). Las grabaciones de prueba son grabaciones completas apartadas:
+ningun audio de prueba comparte grabacion con entrenamiento.
+Copeton: 1 recorte por grabacion, maximo 5 grabaciones por grabador.
+
+Criterios de seleccion (calculados sobre el audio real):
+  SNR = energia de canto (percentil 95) vs ruido de fondo (percentil 10), por cuadros de 50 ms
+  actividad = fraccion de los 5 s con canto
+  frac_energia_banda = fraccion de energia (0-10 kHz) dentro de la banda del ave:
+                       paloma 300-1200 Hz (min 0.70), copeton 2500-7000 Hz (min 0.85, SNR >= 20 dB)
