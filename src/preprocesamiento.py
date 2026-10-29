@@ -1,0 +1,1 @@
+#   cargar WAV, filtro pasa-altos, normalización
