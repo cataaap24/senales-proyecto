@@ -2,6 +2,7 @@
 
 Uso: python app/fase4_interfaz.py
 """
+import logging
 import sys
 import time
 from pathlib import Path
@@ -9,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, QThread, Signal, QRectF, QPointF, QElapsedTimer, QSize
+from PySide6.QtCore import Qt, QTimer, QThread, Signal, QRectF, QPointF, QElapsedTimer, QSize, QSettings
 from PySide6.QtGui import (QColor, QPainter, QPen, QBrush, QFont, QLinearGradient, QPainterPath,
                            QIcon, QPixmap, QPalette)
 from PySide6.QtWidgets import (
@@ -20,16 +21,65 @@ from PySide6.QtWidgets import (
 import fase3_reconocimiento as reconocimiento
 from config import FS, DURACION, N
 
+logger = logging.getLogger(__name__)
+
 # ---------------- Apariencia ----------------
-FONDO = QColor("#0F172A")
-TARJETA = QColor("#1B2336")
-BORDE = QColor("#2C3852")
-TEXTO = QColor("#F8FAFC")
-APAGADO = QColor("#94A3B8")
-BARRA_OFF = QColor("#34425E")
-ACENTO = QColor("#22C55E")
-ERROR = QColor("#F87171")
-COLORES_ESPECIES = (QColor("#F59E0B"), QColor("#38BDF8"))
+# Los mismos nombres semánticos alimentan el estilo Qt y las gráficas dibujadas.
+TEMAS = {
+    "oscuro": {
+        "fondo": "#0F172A", "tarjeta": "#1B2336", "borde": "#2C3852",
+        "texto": "#F8FAFC", "apagado": "#94A3B8", "barra_off": "#34425E",
+        "acento": "#22C55E", "error": "#F87171",
+        "especies": ("#F59E0B", "#38BDF8"),
+        "boton": "#272F42", "boton_borde": "#3A4766",
+        "boton_hover": "#303B55", "boton_pulsado": "#222A3C",
+        "deshabilitado": "#5B6780", "boton_deshabilitado": "#1F273A",
+        "primario_texto": "#0F172A", "primario_hover": "#4ADE80",
+        "primario_pulsado": "#16A34A", "peligro": "#EF4444",
+        "peligro_texto": "#1B0A0A", "peligro_hover": "#F87171",
+        "foco": "#86EFAC", "foco_primario": "#F8FAFC",
+    },
+    "claro": {
+        "fondo": "#F4F7FB", "tarjeta": "#FFFFFF", "borde": "#C9D4E2",
+        "texto": "#172334", "apagado": "#475569", "barra_off": "#CBD5E1",
+        "acento": "#15803D", "error": "#B91C1C",
+        "especies": ("#B45309", "#0369A1"),
+        "boton": "#EAF0F7", "boton_borde": "#B9C7D7",
+        "boton_hover": "#DDE8F3", "boton_pulsado": "#CCDCEC",
+        "deshabilitado": "#64748B", "boton_deshabilitado": "#E8EDF3",
+        "primario_texto": "#FFFFFF", "primario_hover": "#166534",
+        "primario_pulsado": "#14532D", "peligro": "#B91C1C",
+        "peligro_texto": "#FFFFFF", "peligro_hover": "#991B1B",
+        "foco": "#1D4ED8", "foco_primario": "#172334",
+    },
+}
+
+FONDO = TARJETA = BORDE = TEXTO = APAGADO = BARRA_OFF = ACENTO = ERROR = QColor()
+COLORES_ESPECIES = ()
+TONOS = TEMAS["oscuro"]
+
+
+def seleccionar_colores(modo):
+    """Actualiza los colores que leen las tarjetas al repintarse."""
+    global FONDO, TARJETA, BORDE, TEXTO, APAGADO, BARRA_OFF, ACENTO, ERROR
+    global COLORES_ESPECIES, TONOS
+    TONOS = TEMAS[modo]
+    FONDO, TARJETA, BORDE, TEXTO = (QColor(TONOS[k]) for k in
+                                   ("fondo", "tarjeta", "borde", "texto"))
+    APAGADO, BARRA_OFF, ACENTO, ERROR = (QColor(TONOS[k]) for k in
+                                       ("apagado", "barra_off", "acento", "error"))
+    COLORES_ESPECIES = tuple(QColor(c) for c in TONOS["especies"])
+
+
+def configurar_paleta(app):
+    pal = QPalette()
+    for rol, color in ((QPalette.Window, FONDO), (QPalette.WindowText, TEXTO),
+                       (QPalette.Base, TARJETA), (QPalette.AlternateBase, FONDO),
+                       (QPalette.Text, TEXTO), (QPalette.Button, QColor(TONOS["boton"])),
+                       (QPalette.ButtonText, TEXTO), (QPalette.Highlight, ACENTO),
+                       (QPalette.HighlightedText, QColor(TONOS["primario_texto"]))):
+        pal.setColor(rol, color)
+    app.setPalette(pal)
 FMAX_INICIAL = 10000.0
 
 
@@ -124,6 +174,22 @@ def icono(nombre, color, tam=20):
         p.setPen(Qt.NoPen)
         p.setBrush(c)
         p.drawRoundedRect(QRectF(5, 5, 10, 10), 2, 2)
+    elif nombre == "sol":
+        p.drawEllipse(QPointF(10, 10), 3.5, 3.5)
+        for x1, y1, x2, y2 in (
+            (10, 1, 10, 3), (10, 17, 10, 19), (1, 10, 3, 10), (17, 10, 19, 10),
+            (3.6, 3.6, 5.1, 5.1), (14.9, 14.9, 16.4, 16.4),
+            (3.6, 16.4, 5.1, 14.9), (14.9, 5.1, 16.4, 3.6),
+        ):
+            p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+    elif nombre == "luna":
+        luna = QPainterPath()
+        luna.addEllipse(QRectF(2.5, 2.5, 15, 15))
+        hueco = QPainterPath()
+        hueco.addEllipse(QRectF(8, 0.5, 12, 12))
+        p.setPen(Qt.NoPen)
+        p.setBrush(c)
+        p.drawPath(luna.subtracted(hueco))
     p.end()
     return QIcon(pm)
 
@@ -528,25 +594,28 @@ class Trabajo(QThread):
 
 
 # ---------------- Ventana ----------------
-ESTILO = f"""
-QMainWindow, QWidget#raiz {{ background: {FONDO.name()}; }}
-QFrame#panel {{ background: {TARJETA.name()}; border: 1px solid {BORDE.name()}; border-radius: 16px; }}
-QLabel {{ background: transparent; color: {TEXTO.name()}; }}
-QLabel#sub {{ color: {APAGADO.name()}; }}
-QLabel#aviso {{ color: {ERROR.name()}; }}
-QPushButton {{ background: #272F42; color: {TEXTO.name()}; border: 1px solid #3A4766; border-radius: 12px;
+def estilo():
+    c = TONOS
+    return f"""
+QMainWindow, QWidget#raiz {{ background: {c['fondo']}; }}
+QFrame#panel {{ background: {c['tarjeta']}; border: 1px solid {c['borde']}; border-radius: 16px; }}
+QLabel {{ background: transparent; color: {c['texto']}; }}
+QLabel#sub {{ color: {c['apagado']}; }}
+QLabel#aviso {{ color: {c['error']}; }}
+QPushButton {{ background: {c['boton']}; color: {c['texto']}; border: 1px solid {c['boton_borde']}; border-radius: 12px;
     min-height: 46px; padding: 0 16px; font-size: 14px; font-weight: 600; text-align: left; }}
-QPushButton:hover {{ background: #303B55; }}
-QPushButton:pressed {{ background: #222A3C; }}
-QPushButton:focus {{ border: 2px solid #86EFAC; }}
-QPushButton:disabled {{ color: #5B6780; background: #1F273A; border-color: #2C3852; }}
-QPushButton#primario {{ background: {ACENTO.name()}; color: #0F172A; border: none; }}
-QPushButton#primario:hover {{ background: #4ADE80; }}
-QPushButton#primario:pressed {{ background: #16A34A; }}
-QPushButton#primario:focus {{ border: 2px solid #F8FAFC; }}
-QPushButton#peligro {{ background: #EF4444; color: #1B0A0A; border: none; }}
-QPushButton#peligro:hover {{ background: #F87171; }}
-QPushButton#peligro:focus {{ border: 2px solid #F8FAFC; }}
+QPushButton:hover {{ background: {c['boton_hover']}; }}
+QPushButton:pressed {{ background: {c['boton_pulsado']}; }}
+QPushButton:focus {{ border: 2px solid {c['foco']}; }}
+QPushButton:disabled {{ color: {c['deshabilitado']}; background: {c['boton_deshabilitado']}; border-color: {c['borde']}; }}
+QPushButton#primario {{ background: {c['acento']}; color: {c['primario_texto']}; border: 1px solid {c['acento']}; }}
+QPushButton#primario:hover {{ background: {c['primario_hover']}; }}
+QPushButton#primario:pressed {{ background: {c['primario_pulsado']}; }}
+QPushButton#primario:focus {{ border: 2px solid {c['foco_primario']}; }}
+QPushButton#peligro {{ background: {c['peligro']}; color: {c['peligro_texto']}; border: 1px solid {c['peligro']}; }}
+QPushButton#peligro:hover {{ background: {c['peligro_hover']}; }}
+QPushButton#peligro:focus {{ border: 2px solid {c['foco_primario']}; }}
+QPushButton#tema {{ min-height: 42px; max-height: 42px; padding: 0; text-align: center; }}
 """
 
 
@@ -556,7 +625,9 @@ class Ventana(QMainWindow):
         self.setWindowTitle("Reconocedor de aves")
         self.resize(1240, 800)
         self.setMinimumSize(1060, 760)
-        self.setStyleSheet(ESTILO)
+        self.ajustes = QSettings("senales-aves", "ReconocedorAves")
+        guardado = self.ajustes.value("tema", "oscuro")
+        self.tema = guardado if guardado in TEMAS else "oscuro"
 
         self.modelo = None
         self.x5 = None
@@ -588,10 +659,13 @@ class Ventana(QMainWindow):
         titulos.addWidget(self.etiqueta_especies)
         cab.addLayout(titulos)
         cab.addStretch()
-        self.estado_modelo = QLabel("Sin modelo")
-        self.estado_modelo.setObjectName("sub")
-        self.estado_modelo.setFont(fuente(12, mono=True))
-        cab.addWidget(self.estado_modelo, alignment=Qt.AlignVCenter)
+        self.b_tema = QPushButton()
+        self.b_tema.setObjectName("tema")
+        self.b_tema.setFixedSize(44, 44)
+        self.b_tema.setIconSize(QSize(20, 20))
+        self.b_tema.setCursor(Qt.PointingHandCursor)
+        self.b_tema.clicked.connect(self.alternar_tema)
+        cab.addWidget(self.b_tema, alignment=Qt.AlignVCenter)
         col.addLayout(cab)
 
         cuerpo = QHBoxLayout()
@@ -647,9 +721,34 @@ class Ventana(QMainWindow):
         self.b_mic.clicked.connect(self.alternar_microfono)
         self.b_cargar.clicked.connect(self.cargar)
         self.b_play.clicked.connect(self.alternar_reproduccion)
-        self.refrescar_botones()
+        self.aplicar_tema()
 
         self.cargar_modelo()
+
+    def aplicar_tema(self):
+        """Aplica el tema a Qt y a las gráficas sin alterar el análisis activo."""
+        seleccionar_colores(self.tema)
+        configurar_paleta(QApplication.instance())
+        self.setStyleSheet(estilo())
+        self.b_tema.setIcon(icono("sol" if self.tema == "oscuro" else "luna",
+                                   TONOS["texto"]))
+        descripcion = "Cambiar al modo claro" if self.tema == "oscuro" else "Cambiar al modo oscuro"
+        self.b_tema.setToolTip(descripcion)
+        self.b_tema.setAccessibleName(descripcion)
+        self.refrescar_botones()
+        if self.modelo:
+            self.tarjeta_res.configurar_modelo(self.modelo)
+        especies_visibles = [clave for clave, _ in self.energias.series if clave != "audio"]
+        self.energias.colores = {
+            clave: COLORES_ESPECIES[i % len(COLORES_ESPECIES)]
+            for i, clave in enumerate(especies_visibles)
+        }
+        self.update_all()
+
+    def alternar_tema(self):
+        self.tema = "claro" if self.tema == "oscuro" else "oscuro"
+        self.ajustes.setValue("tema", self.tema)
+        self.aplicar_tema()
 
     # ---- animación ----
     def animar(self):
@@ -694,12 +793,13 @@ class Ventana(QMainWindow):
         rep = self.estado == "reproduciendo"
         self.b_mic.setText("  Detener" if grab else "  Escuchar con micrófono")
         self.b_mic.setObjectName("peligro" if grab else "primario")
-        self.b_mic.setIcon(icono("stop" if grab else "mic", "#1B0A0A" if grab else "#0F172A"))
-        self.b_cargar.setIcon(icono("carpeta", "#F8FAFC"))
+        self.b_mic.setIcon(icono("stop" if grab else "mic",
+                                  TONOS["peligro_texto" if grab else "primario_texto"]))
+        self.b_cargar.setIcon(icono("carpeta", TONOS["texto"]))
         self.b_play.setText("  Detener" if rep else "  Reproducir")
         self.b_cargar.setEnabled(not grab)
         self.b_play.setEnabled(self.x5 is not None and not grab)
-        color_play = "#F8FAFC" if self.b_play.isEnabled() else "#5B6780"
+        color_play = TONOS["texto" if self.b_play.isEnabled() else "deshabilitado"]
         self.b_play.setIcon(icono("stop" if rep else "play", color_play))
         for b in (self.b_mic,):
             b.style().unpolish(b)
@@ -716,13 +816,11 @@ class Ventana(QMainWindow):
             self.modelo = reconocimiento.cargar_modelo()
         except (OSError, ValueError) as error:
             self.modelo = None
-            self.estado_modelo.setText("● Sin modelo")
-            self.estado_modelo.setStyleSheet(f"color: {ERROR.name()};")
+            logger.warning("Sin modelo: %s", error)
             self.etiqueta_especies.setText("Modelo pendiente")
             self.poner_aviso(str(error))
             return False
-        self.estado_modelo.setText("● Modelo listo")
-        self.estado_modelo.setStyleSheet(f"color: {ACENTO.name()};")
+        logger.info("Modelo listo")
         self.etiqueta_especies.setText(" · ".join(
             datos["nombre"] for datos in self.modelo["especies"].values()))
         self.espectro.configurar_modelo(self.modelo)
@@ -933,19 +1031,9 @@ class Ventana(QMainWindow):
 
 
 def main():
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    pal = QPalette()
-    pal.setColor(QPalette.Window, FONDO)
-    pal.setColor(QPalette.WindowText, TEXTO)
-    pal.setColor(QPalette.Base, TARJETA)
-    pal.setColor(QPalette.AlternateBase, FONDO)
-    pal.setColor(QPalette.Text, TEXTO)
-    pal.setColor(QPalette.Button, QColor("#272F42"))
-    pal.setColor(QPalette.ButtonText, TEXTO)
-    pal.setColor(QPalette.Highlight, ACENTO)
-    pal.setColor(QPalette.HighlightedText, FONDO)
-    app.setPalette(pal)
     v = Ventana()
     v.show()
     sys.exit(app.exec())
