@@ -60,7 +60,7 @@ python app/fase1_captura_filtro.py --wav datos/banco_aves/prueba/paloma/<archivo
 
 | Fase | Contenido | Estado |
 |---|---|---|
-| 1 | Captura por micrófono + filtro | Hecha (micrófono sin probar en vivo) |
+| 1 | Captura por micrófono + filtro | Hecha |
 | 2 | Entrenamiento: FFT, espectro promedio, cortes de subbandas, energías, JSON | Pendiente |
 | 3 | Reconocimiento y evaluación del error (meta: ≤ 5 %) | Pendiente |
 | 4 | Interfaz, micrófono en tiempo real, umbral de actividad ("no se detectó canto") | Pendiente |
