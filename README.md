@@ -66,17 +66,17 @@ En Windows, activa el entorno con `.venv\Scripts\activate`. Para el micrófono s
 
 ## Ejemplo de uso de las fases 2 a 4
 
-Los bordes iniciales son una base ajustable, no una selección de bandas ya validada. La opción `--grafica` ayuda a inspeccionar los espectros promedio antes de fijarlos.
+Los bordes iniciales son una base ajustable, no una selección de bandas ya validada. La previsualización dibuja los dos espectros promedio y las líneas divisorias de las subbandas propuestas, sin reemplazar el modelo. Ajusta `--bordes` donde las curvas y sus energías se distingan; usa en el informe la gráfica correspondiente a los bordes finalmente elegidos.
 
 ```bash
-python app/fase2_entrenamiento.py --bordes 0,2000,4000,6000,8000,10000 --grafica resultados/figuras/espectros_promedio.png
+python app/fase2_entrenamiento.py --solo-grafica --bordes 0,2000,4000,6000,8000,10000 --grafica resultados/figuras/espectros_promedio.png
 python app/fase3_reconocimiento.py --audio datos/banco_aves/prueba/paloma/paloma_008_XC272805_r2.wav
 python app/fase3_reconocimiento.py --evaluar datos/banco_aves
 python app/fase4_interfaz.py
 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-La fase 2 es la única que crea el modelo. La evaluación imprime aciertos y porcentaje de error. La interfaz vuelve a leer el modelo al analizar un audio: los nuevos vectores, nombres y bordes se muestran sin cambiar el código de la pantalla. Si falta un modelo válido, la interfaz lo informa y no intenta entrenarlo. El icono de sol o luna del encabezado alterna entre modo claro y oscuro; la elección se conserva al volver a abrir la aplicación.
+Cuando los cortes estén revisados, ejecuta la misma orden sin `--solo-grafica` para guardar el modelo. La fase 2 es la única que lo crea. La evaluación imprime aciertos y porcentaje de error. La interfaz vuelve a leer el modelo al analizar un audio: los nuevos vectores, nombres y bordes se muestran sin cambiar el código de la pantalla. Si falta un modelo válido, la interfaz lo informa y no intenta entrenarlo. El icono de sol o luna del encabezado alterna entre modo claro y oscuro; la elección se conserva al volver a abrir la aplicación.
 
 ## Estado y fases
 

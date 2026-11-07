@@ -81,21 +81,36 @@ def guardar_modelo(modelo, destino=MODELO):
     return destino
 
 
-def guardar_grafica(frecuencias, promedios, destino):
-    """Dibuja los dos espectros para revisar dónde conviene cortar las bandas."""
+def guardar_grafica(frecuencias, promedios, bordes, destino):
+    """Muestra los espectros y los límites candidatos de las subbandas."""
     import matplotlib.pyplot as plt
 
-    figura, eje = plt.subplots(figsize=(10, 4))
+    bordes = validar_bordes(bordes)
+    figura, eje = plt.subplots(figsize=(11, 4.5))
     for especie, magnitud in promedios.items():
-        eje.plot(frecuencias, magnitud, label=ESPECIES[especie]["nombre"])
+        eje.plot(frecuencias, magnitud, linewidth=1.6,
+                 label=ESPECIES[especie]["nombre"])
+    for i, (inferior, superior) in enumerate(zip(bordes[:-1], bordes[1:]), start=1):
+        if i % 2 == 0:
+            eje.axvspan(inferior, superior, color="#64748b", alpha=0.06)
+        eje.text((inferior + superior) / 2, 0.98, f"B{i}",
+                 transform=eje.get_xaxis_transform(), ha="center", va="top",
+                 color="#475569", fontsize=9)
+    for limite in bordes[1:-1]:
+        eje.axvline(limite, color="#475569", linestyle="--", linewidth=0.9)
     eje.set(xlabel="Frecuencia (Hz)", ylabel="Magnitud |C(k)|",
-            xlim=(0, float(frecuencias[-1])), title="Espectros promedio de entrenamiento")
+            xlim=(float(bordes[0]), float(bordes[-1])),
+            title="Espectros promedio y subbandas propuestas")
+    eje.set_xticks(bordes)
+    eje.set_ylim(bottom=0)
+    eje.grid(axis="y", alpha=0.2)
     eje.legend()
     figura.tight_layout()
     destino = Path(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)
     figura.savefig(destino, dpi=150)
     plt.close(figura)
+    return destino
 
 
 def main():
@@ -105,15 +120,21 @@ def main():
     parser.add_argument("--bordes", default=",".join(map(str, BORDES_INICIALES)),
                         help="Límites en Hz, separados por comas; definen de 3 a 8 subbandas")
     parser.add_argument("--grafica", type=Path,
-                        help="Ruta opcional para guardar los espectros promedio")
+                        help="Ruta para guardar los espectros con los límites de subbanda")
+    parser.add_argument("--solo-grafica", action="store_true",
+                        help="Previsualiza los cortes sin guardar ni reemplazar el modelo")
     args = parser.parse_args()
+    if args.solo_grafica and not args.grafica:
+        parser.error("--solo-grafica requiere --grafica")
 
     bordes = [float(valor) for valor in args.bordes.split(",")]
     modelo, frecuencias, promedios = entrenar(args.banco, bordes)
-    destino = guardar_modelo(modelo, args.salida)
     if args.grafica:
-        guardar_grafica(frecuencias, promedios, args.grafica)
-    print(f"Modelo guardado en {destino}")
+        grafica = guardar_grafica(frecuencias, promedios, modelo["bordes_hz"], args.grafica)
+        print(f"Gráfica guardada en {grafica}")
+    if not args.solo_grafica:
+        destino = guardar_modelo(modelo, args.salida)
+        print(f"Modelo guardado en {destino}")
     print(f"Audios por especie: {modelo['archivos_entrenamiento']}")
 
 
