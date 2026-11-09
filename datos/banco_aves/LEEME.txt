@@ -1,12 +1,13 @@
 BANCO DE CANTOS - paloma torcaza (Zenaida auriculata) vs copeton (Zonotrichia capensis)
-Fuente: xeno-canto.org (licencias Creative Commons; ver creditos.csv, citar en el informe).
+Fuentes: xeno-canto.org e iNaturalist.org (solo observaciones de grado de investigacion), licencias
+Creative Commons; ver creditos.csv (columna fuente) y citar en el informe.
 
 Formato de TODOS los archivos: WAV PCM 16 bit, mono, 22050 Hz, 5.000 s exactos (110250 muestras).
 Cada recorte es la ventana de 5 s con mas energia de canto (o varias ventanas sin solape, en la paloma).
 Los audios NO estan filtrados: el filtrado (pasa-altos) se hace en el proyecto. Solo se normalizaron a pico 0.9.
 
-entrenamiento/  66 por especie -> para calcular espectros promedio y vectores de umbrales de energia.
-prueba/         12 por especie -> NUNCA usarlos para entrenar. Simulan la senal "en tiempo real".
+entrenamiento/  paloma 85, copeton 128 -> para calcular espectros promedio y vectores de umbrales de energia.
+prueba/         paloma 32, copeton 52 -> NUNCA usarlos para entrenar. Simulan la senal "en tiempo real".
 
 Paloma: xeno-canto solo tiene ~40 grabaciones limpias de su canto, asi que de cada grabacion se tomaron
 hasta 4 recortes distintos (sufijo _r1.._r4). Las grabaciones de prueba son grabaciones completas apartadas:
@@ -18,3 +19,12 @@ Criterios de seleccion (calculados sobre el audio real):
   actividad = fraccion de los 5 s con canto
   frac_energia_banda = fraccion de energia (0-10 kHz) dentro de la banda del ave:
                        paloma 300-1200 Hz (min 0.70), copeton 2500-7000 Hz (min 0.85, SNR >= 20 dB)
+
+AMPLIACION (nov 2026): +39 recortes de paloma (23 grabaciones) y +102 de copeton (102 grabaciones),
+de 335 audios descargados. Pasaron por herramientas/curar_banco.py (mismos criterios de arriba) y luego
+por revision visual de espectrogramas: se descartaron 2 de paloma por golpes/aleteo, 9 de paloma por
+golpes graves de manipulacion (XC50876-78) y 11 de copeton por ruido, canto dudoso o edicion.
+Reparto entre entrenamiento y prueba POR GRABADOR: ningun grabador de prueba aparece en entrenamiento
+(mismo equipo o sitio haria la prueba mas facil de lo real). Copeton: maximo 2 grabaciones por grabador,
+prioridad a Colombia. Los numeros de archivo continuan la numeracion anterior; prefijo XC = xeno-canto,
+IN = sonido de iNaturalist.
