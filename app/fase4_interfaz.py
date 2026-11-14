@@ -489,15 +489,16 @@ class EspectrosPromedio(Tarjeta):
     """Dibuja las curvas guardadas por especie y los cortes del modelo."""
 
     def __init__(self):
-        super().__init__("Espectros promedio por especie")
+        super().__init__("Espectros promedio y señal de entrada")
         self.frecuencias = None
         self.series = {}
+        self.entrada = None
         self.modelo = None
         self.mensaje = "Los espectros aparecerán cuando la fase 2 exporte sus datos."
         self.setMinimumHeight(380)
         self.setMouseTracking(True)
         self.hover = None
-        self.setAccessibleName("Espectros promedio por especie")
+        self.setAccessibleName("Espectros promedio y señal de entrada")
 
     def fijar(self, modelo, frecuencias, series):
         self.modelo = modelo
@@ -506,7 +507,7 @@ class EspectrosPromedio(Tarjeta):
         self.mensaje = ""
         self.hover = None
         self.setAccessibleDescription(
-            "Curvas de magnitud FFT promedio por especie. "
+            "Curvas de magnitud FFT promedio por especie y de la señal de entrada. "
             "El eje horizontal es k omega cero; las marcas indican el índice k. "
             "Las líneas verticales marcan las subbandas del modelo."
         )
@@ -515,10 +516,23 @@ class EspectrosPromedio(Tarjeta):
     def vaciar(self, mensaje):
         self.frecuencias = None
         self.series = {}
+        self.entrada = None
         self.mensaje = mensaje
         self.hover = None
         QToolTip.hideText()
         self.setAccessibleDescription(mensaje)
+        self.update()
+
+    def fijar_entrada(self, magnitudes):
+        """Agrupa la FFT ya calculada como los espectros guardados."""
+        if self.frecuencias is None:
+            return
+        limites = np.linspace(0, len(magnitudes), len(self.frecuencias) + 1, dtype=int)
+        self.entrada = np.add.reduceat(magnitudes, limites[:-1]) / np.diff(limites)
+        self.update()
+
+    def vaciar_entrada(self):
+        self.entrada = None
         self.update()
 
     def _escala(self):
@@ -526,6 +540,8 @@ class EspectrosPromedio(Tarjeta):
         puntos_fft = int(self.modelo["fs"] * self.modelo["duracion"])
         frecuencia_final = (puntos_fft - 1) * self.modelo["fs"] / puntos_fft
         tope = max(max(float(np.max(v)) for v in self.series.values()) * 1.08, 1e-12)
+        if self.entrada is not None:
+            tope = max(tope, float(np.max(self.entrada)) * 1.08)
         return area, 0.0, frecuencia_final, tope
 
     def mouseMoveEvent(self, evento):
@@ -543,7 +559,10 @@ class EspectrosPromedio(Tarjeta):
                     self.update()
                 return
             cercano = None
-            for especie, valores in self.series.items():
+            curvas = list(self.series.items())
+            if self.entrada is not None:
+                curvas.append(("entrada", self.entrada))
+            for especie, valores in curvas:
                 magnitud = float(np.interp(hz, self.frecuencias, valores))
                 y = area.bottom() - magnitud / tope * area.height()
                 distancia = abs(punto.y() - y)
@@ -552,7 +571,8 @@ class EspectrosPromedio(Tarjeta):
             if cercano:
                 _, especie, magnitud, y = cercano
                 self.hover = (especie, hz, magnitud, QPointF(punto.x(), y))
-                nombre = self.modelo["especies"][especie]["nombre"]
+                nombre = ("Señal de entrada" if especie == "entrada" else
+                          self.modelo["especies"][especie]["nombre"])
                 puntos_fft = int(self.modelo["fs"] * self.modelo["duracion"])
                 indice_k = hz * puntos_fft / self.modelo["fs"]
                 omega = 2 * np.pi * indice_k / puntos_fft
@@ -624,11 +644,18 @@ class EspectrosPromedio(Tarjeta):
         p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()))
         p.drawText(QRectF(area.left(), area.bottom() + 31, area.width(), 20),
                    Qt.AlignCenter, "kω₀  (ω₀ = 2π/N rad/muestra; marcas en k)")
-        p.drawText(QRectF(18, 48, 260, 20), Qt.AlignLeft, "Magnitud promedio ‖X(k)‖")
+        p.drawText(QRectF(18, 48, 260, 20), Qt.AlignLeft, "Magnitud ‖X(k)‖")
 
         colores = colores_del_modelo(self.modelo)
         p.save()
         p.setClipRect(area)
+        if self.entrada is not None:
+            ruta = QPainterPath(QPointF(x_de(float(self.frecuencias[0])),
+                                       y_de(float(self.entrada[0]))))
+            for hz, magnitud in zip(self.frecuencias[1:], self.entrada[1:]):
+                ruta.lineTo(x_de(float(hz)), y_de(float(magnitud)))
+            p.setPen(QPen(ACENTO, 2.5, Qt.DashDotLine, Qt.RoundCap, Qt.RoundJoin))
+            p.drawPath(ruta)
         # La primera especie queda al frente cuando las curvas coinciden.
         for indice, (especie, magnitudes) in reversed(list(enumerate(self.series.items()))):
             ruta = QPainterPath(QPointF(x_de(float(self.frecuencias[0])),
@@ -642,7 +669,7 @@ class EspectrosPromedio(Tarjeta):
 
         if self.hover:
             especie, _, _, punto = self.hover
-            p.setPen(QPen(colores[especie], 2))
+            p.setPen(QPen(ACENTO if especie == "entrada" else colores[especie], 2))
             p.setBrush(TARJETA)
             p.drawEllipse(punto, 5, 5)
 
@@ -656,6 +683,11 @@ class EspectrosPromedio(Tarjeta):
             nombre = self.modelo["especies"][especie]["nombre"]
             p.drawText(QPointF(posicion + 34, 82), nombre)
             posicion += 52 + p.fontMetrics().horizontalAdvance(nombre)
+        if self.entrada is not None:
+            p.setPen(QPen(ACENTO, 2.5, Qt.DashDotLine))
+            p.drawLine(QPointF(posicion, 77), QPointF(posicion + 26, 77))
+            p.setPen(TEXTO)
+            p.drawText(QPointF(posicion + 34, 82), "Señal de entrada")
 
 
 class Energias(Tarjeta):
@@ -1093,8 +1125,8 @@ class Ventana(QMainWindow):
         notas.setSpacing(16)
         for titulo, descripcion in (
             ("Qué muestran las curvas",
-             "Cada trazo une las magnitudes FFT promedio de una especie. "
-             "Los puntos provienen de las grabaciones de entrenamiento."),
+             "Las curvas de referencia unen las magnitudes FFT promedio de cada especie. "
+             "Al analizar un audio aparece también su espectro de entrada."),
             ("Energía de referencia por banda", ""),
         ):
             tarjeta = QFrame(objectName="panel")
@@ -1219,6 +1251,8 @@ class Ventana(QMainWindow):
             self.estado_espectros.clear()
             return
         self.espectros_promedio.fijar(self.modelo, frecuencias, series)
+        if self.resultado is not None:
+            self.espectros_promedio.fijar_entrada(self.resultado["mag"])
         self.estado_espectros.setText(
             "FFT completa · eje kω₀ · escala vertical lineal"
         )
@@ -1305,6 +1339,7 @@ class Ventana(QMainWindow):
         self.espectro.vaciar()
         self.energias.vaciar()
         self.resultado = None
+        self.espectros_promedio.vaciar_entrada()
         self.refrescar_botones()
         if np.max(np.abs(self.x5)) < 1e-4:
             # Esta comprobación de entrada evita clasificar el silencio.
@@ -1334,6 +1369,7 @@ class Ventana(QMainWindow):
         if token != self.token:
             return
         self.resultado = res
+        self.espectros_promedio.fijar_entrada(res["mag"])
         if self.estado != "reproduciendo":
             self.espectro.fijar(perfil_espectro(res["mag"], res["frecuencias"], auto=True,
                                                   fmax=self.espectro.fmax), "Audio de 5 s")
@@ -1411,6 +1447,7 @@ class Ventana(QMainWindow):
             return
         self.x5 = None
         self.resultado = None
+        self.espectros_promedio.vaciar_entrada()
         self.token += 1
         self.tarjeta_res.poner("vacio")
         self.energias.vaciar()
