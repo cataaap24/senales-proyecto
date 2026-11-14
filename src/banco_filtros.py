@@ -9,7 +9,7 @@ from math import gcd
 
 import numpy as np
 
-from config import FS, N
+from config import FS, N, UMBRAL_ACTIVIDAD_DB
 from espectro import calcular_fft
 from preprocesamiento import acondicionar
 
@@ -80,3 +80,31 @@ def energias(magnitud, frecuencias, bordes):
 def distancia(energia_audio, energia_especie):
     """Suma las diferencias absolutas entre energías de subbandas."""
     return float(np.sum(np.abs(energia_audio - energia_especie)))
+
+
+def rango_dinamico(audio):
+    """Rango dinámico en dB de la señal filtrada (sin normalizar), en cuadros de 50 ms.
+
+    Compara la energía de los cuadros más fuertes (percentil 95) con la de los más débiles
+    (percentil 10). Un canto alterna sílabas y pausas, así que su rango es alto (en el banco,
+    mínimo 11 dB); el silencio, el ventilador o el zumbido eléctrico dan menos de 2 dB.
+    """
+    senal = acondicionar(recortar(audio), normalizar=False)
+    largo = int(0.05 * FS)
+    cuadros = len(senal) // largo
+    energia = np.mean(senal[:cuadros * largo].reshape(cuadros, largo) ** 2, axis=1) + 1e-20
+    return float(10 * np.log10(np.percentile(energia, 95) / np.percentile(energia, 10)))
+
+
+def hay_canto(audio):
+    """True si la señal tiene la variación de energía propia de un canto."""
+    return rango_dinamico(audio) >= UMBRAL_ACTIVIDAD_DB
+
+
+def dentro_de_intervalo(energia_audio, intervalo):
+    """Nota del profesor: intervalo de energía = promedio ± k·desviación, en cada subbanda (dB)."""
+    energia_db = 10 * np.log10(np.asarray(energia_audio, dtype=float) + 1e-20)
+    media = np.asarray(intervalo["media_db"], dtype=float)
+    ancho = intervalo["k"] * np.maximum(np.asarray(intervalo["desviacion_db"], dtype=float),
+                                        intervalo["desviacion_minima_db"])
+    return bool(np.all(np.abs(energia_db - media) <= ancho))

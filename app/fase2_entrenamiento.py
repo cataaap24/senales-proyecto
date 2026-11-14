@@ -14,7 +14,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from banco_filtros import cargar_audio, energias, espectro, validar_bordes
-from config import BANCO, DURACION, FS, MODELO, PREFILTRO_FC1, PREFILTRO_FC2
+from config import (BANCO, DESVIACION_MINIMA_DB, DURACION, FS, K_DESVIACION, MODELO,
+                    PREFILTRO_FC1, PREFILTRO_FC2)
 
 
 # Añadir grabaciones al banco no exige cambiar código. Estos nombres solo
@@ -23,7 +24,11 @@ ESPECIES = {
     "paloma": {"nombre": "Paloma torcaza", "cientifico": "Zenaida auriculata"},
     "copeton": {"nombre": "Copetón", "cientifico": "Zonotrichia capensis"},
 }
-BORDES_INICIALES = (0, 2000, 4000, 6000, 8000, 10000)
+# Cortes escogidos sobre la gráfica de espectros promedio (resultados/figuras/espectros_promedio.png):
+# B1 200-1500 Hz concentra el arrullo de la paloma (~300-1200 Hz), B2 1500-3000 Hz es la zona de
+# transición y B3 3000-8000 Hz concentra el canto del copetón (~2500-7000 Hz). Empiezan en 200 Hz y
+# terminan en 8000 Hz porque el pre-filtro elimina lo que está fuera de ese rango.
+BORDES_INICIALES = (200, 1500, 3000, 8000)
 
 
 def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
@@ -41,6 +46,8 @@ def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
     completados = 0
     vectores = {}
     promedios = {}
+    media_db = {}
+    desviacion_db = {}
     frecuencias = None
 
     for especie, archivos in rutas.items():
@@ -58,6 +65,13 @@ def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
         promedios[especie] = promedio
         vectores[especie] = energias(promedio, frecuencias, bordes).tolist()
 
+        # Nota del profesor: además del promedio, la desviación estándar de las energías de cada
+        # grabación da un intervalo por subbanda. Sirve para responder «no reconocido».
+        individuales = np.array([energias(m, frecuencias, bordes) for m in espectros])
+        en_db = 10 * np.log10(individuales + 1e-20)
+        media_db[especie] = en_db.mean(axis=0).tolist()
+        desviacion_db[especie] = en_db.std(axis=0).tolist()
+
     modelo = {
         "version": 1,
         "fs": FS,
@@ -67,6 +81,12 @@ def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
         "especies": ESPECIES,
         "vectores_energia": vectores,
         "archivos_entrenamiento": {especie: len(archivos) for especie, archivos in rutas.items()},
+        "intervalos": {
+            "k": K_DESVIACION,
+            "desviacion_minima_db": DESVIACION_MINIMA_DB,
+            "media_db": media_db,
+            "desviacion_db": desviacion_db,
+        },
     }
     return modelo, frecuencias, promedios
 

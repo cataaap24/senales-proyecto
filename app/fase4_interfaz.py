@@ -426,7 +426,7 @@ class Energias(Tarjeta):
         lo = min(v.min() for v in logs.values()) - 0.2
         hi = max(v.max() for v in logs.values()) + 0.15
         self.datos = {k: (v - lo) / (hi - lo) for k, v in logs.items()}
-        self.ganadora = res["especie"]
+        self.ganadora = res["especie"] if res.get("estado", "especie") == "especie" else None
         self.t = 0.0
 
     def vaciar(self):
@@ -551,6 +551,11 @@ class Resultado(Tarjeta):
             nombre = datos["nombre"]
             sub = datos.get("cientifico", "")
             nota = "Especie del banco"
+        elif self.estado == "no_reconocido":
+            cercana = self.especies.get(self.especie, {}).get("nombre", "")
+            nombre, sub, nota = "No reconocido", f"Fuera del intervalo de energías (lo más cercano: {cercana})", ""
+        elif self.estado == "sin_canto":
+            nombre, sub, nota = "Sin canto", "Se escucha ruido o silencio, no un canto", ""
         elif self.estado == "sin_senal":
             nombre, sub, nota = "Sin señal", "No se detectó audio suficiente", ""
         elif self.estado == "sin_modelo":
@@ -902,7 +907,7 @@ class Ventana(QMainWindow):
             self.espectro.fijar(perfil_espectro(res["mag"], res["frecuencias"], auto=True,
                                                   fmax=self.espectro.fmax), "Audio de 5 s")
         self.energias.fijar(res)
-        self.tarjeta_res.poner("especie", res["especie"])
+        self.tarjeta_res.poner(res.get("estado", "especie"), res["especie"])
         self.animar()
 
     # ---- reproducción ----

@@ -12,8 +12,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from banco_filtros import (cargar_audio, distancia, energias, espectro,
-                           recortar, validar_bordes)
+from banco_filtros import (cargar_audio, dentro_de_intervalo, distancia, energias,
+                           espectro, hay_canto, recortar, validar_bordes)
 from config import DURACION, FS, MODELO, PREFILTRO_FC1, PREFILTRO_FC2
 
 
@@ -70,17 +70,30 @@ def cargar_modelo(ruta=MODELO):
 
 
 def reconocer(audio, modelo):
-    """Compara el audio con ambos vectores y escoge la menor distancia."""
+    """Compara el audio con ambos vectores y escoge la menor distancia.
+
+    estado = "especie"        se reconoce la especie con menor distancia (método del profesor)
+             "sin_canto"      la señal no tiene variación de energía de un canto (ruido o silencio)
+             "no_reconocido"  la especie más cercana existe, pero el audio cae fuera de su intervalo
+                              promedio ± k·desviación (nota del profesor, pág. 45)
+    "especie" siempre trae la más cercana, para poder graficar la comparación.
+    """
     frecuencias, magnitud = espectro(audio)
     energia_audio = energias(magnitud, frecuencias, modelo["bordes_hz"])
     distancias = {
         especie: distancia(energia_audio, vector)
         for especie, vector in modelo["vectores_energia"].items()
     }
-    # La decisión del método es binaria: gana la menor distancia. No se añade
-    # aquí el rechazo experimental de «otra especie» del prototipo anterior.
     especie = min(distancias, key=distancias.get)
+    if not hay_canto(audio):
+        estado = "sin_canto"
+    elif "intervalos" in modelo and not dentro_de_intervalo(
+            energia_audio, intervalo_de(modelo, especie)):
+        estado = "no_reconocido"
+    else:
+        estado = "especie"
     return {
+        "estado": estado,
         "especie": especie,
         "distancias": distancias,
         "Ex": energia_audio,
@@ -92,6 +105,14 @@ def reconocer(audio, modelo):
     }
 
 
+def intervalo_de(modelo, especie):
+    """Intervalo de energías de una especie, en el formato que espera dentro_de_intervalo."""
+    datos = modelo["intervalos"]
+    return {"k": datos["k"], "desviacion_minima_db": datos["desviacion_minima_db"],
+            "media_db": datos["media_db"][especie],
+            "desviacion_db": datos["desviacion_db"][especie]}
+
+
 def evaluar(banco, modelo):
     """Mide errores solo con los WAV de prueba, separados del entrenamiento."""
     banco = Path(banco)
@@ -101,7 +122,9 @@ def evaluar(banco, modelo):
         if not archivos:
             raise FileNotFoundError(f"No hay audios de prueba para {esperada}.")
         for archivo in archivos:
-            predicha = reconocer(cargar_audio(archivo), modelo)["especie"]
+            res = reconocer(cargar_audio(archivo), modelo)
+            # Un audio del banco rechazado («sin canto» o «no reconocido») cuenta como error.
+            predicha = res["especie"] if res["estado"] == "especie" else res["estado"]
             resultados.append((archivo, esperada, predicha))
     return resultados
 
@@ -122,7 +145,12 @@ def main():
     if args.audio:
         resultado = reconocer(cargar_audio(args.audio), modelo)
         especie = resultado["especie"]
-        print(modelo["especies"][especie]["nombre"])
+        if resultado["estado"] == "sin_canto":
+            print("No se detectó canto")
+        elif resultado["estado"] == "no_reconocido":
+            print(f"No reconocido (lo más cercano: {modelo['especies'][especie]['nombre']})")
+        else:
+            print(modelo["especies"][especie]["nombre"])
         print(f"Distancias: {resultado['distancias']}")
     else:
         resultados = evaluar(args.evaluar, modelo)

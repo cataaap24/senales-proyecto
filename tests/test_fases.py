@@ -86,6 +86,24 @@ class PruebasDeFases(unittest.TestCase):
             self.assertEqual(len(modelo["bordes_hz"]) - 1, 3)
             self.assertEqual(destino.read_text(encoding="utf-8"), contenido)
 
+    def test_ruido_constante_no_es_canto_y_silabas_si(self):
+        rng = np.random.default_rng(0)
+        n = banco_filtros.N
+        ruido = rng.normal(size=n)
+        # Sílabas de 0.2 s a 3 kHz separadas por pausas, sobre ruido débil.
+        t = np.arange(n) / banco_filtros.FS
+        silabas = np.sin(2 * np.pi * 3000 * t) * ((t % 0.5) < 0.2) + 0.01 * rng.normal(size=n)
+        with patch.object(banco_filtros, "acondicionar", side_effect=lambda x, normalizar=True: x):
+            self.assertFalse(banco_filtros.hay_canto(ruido))
+            self.assertTrue(banco_filtros.hay_canto(silabas))
+
+    def test_intervalo_usa_desviacion_minima(self):
+        intervalo = {"k": 3.0, "desviacion_minima_db": 1.0,
+                     "media_db": [10.0, -20.0], "desviacion_db": [0.1, 5.0]}
+        # 10 dB ± 3·max(0.1, 1) = [7, 13];  -20 dB ± 15 = [-35, -5]
+        self.assertTrue(banco_filtros.dentro_de_intervalo([10 ** 1.2, 10 ** -3.0], intervalo))
+        self.assertFalse(banco_filtros.dentro_de_intervalo([10 ** 1.4, 10 ** -2.0], intervalo))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,9 +35,11 @@ datos/banco_aves/                audios de entrenamiento, prueba y créditos
 
 ## Banco de audios
 
-- Fuente: xeno-canto, con grabaciones de varios autores y países. Los créditos están en `datos/banco_aves/creditos.csv`.
+- Fuentes: xeno-canto e iNaturalist (solo grado de investigación), de muchos autores y países. Los créditos están en `datos/banco_aves/creditos.csv`.
 - Formato: WAV mono, 22050 Hz, 5 s.
-- Entrenamiento: 66 + 66. Prueba: 12 + 12 (paloma + copetón).
+- Entrenamiento: 85 paloma + 129 copetón. Prueba: 32 paloma + 56 copetón.
+- Entrenamiento y prueba se separan por grabador: nadie que grabó un audio de prueba aparece en el entrenamiento de esa especie, y una misma grabación nunca está en los dos conjuntos.
+- `datos/descartados/` guarda audios retirados del banco (duplicados, un llamado en vez de canto, un audio sin fuente). No se usan.
 
 ## Decisiones importantes
 
@@ -51,7 +53,13 @@ datos/banco_aves/                audios de entrenamiento, prueba y créditos
 
 **Normalización de energía: es un agregado nuestro.** No aparece en el enunciado del proyecto. Se hace porque el algoritmo compara energías absolutas contra vectores de referencia, y con el micrófono la energía sube o baja según el volumen y la distancia al ave. Se normaliza por energía total (no por el valor pico), porque un solo golpe al micrófono cambia el pico de toda la grabación pero casi no cambia su energía total. Debe mencionarse en el informe como parte del acondicionamiento, no del método principal.
 
-**FFT.** Se usa `np.fft.rfft` (solo la mitad no negativa del espectro, porque la señal es real).
+**FFT.** Se usa `np.fft.rfft` (solo la mitad no negativa del espectro, porque la señal es real). Las notas usan `y = fft(x)` de Matlab, así que usar la FFT de la librería es fiel al método.
+
+**Subbandas: 3, escogidas sobre los espectros promedio.** B1 = 200–1500 Hz (arrullo de la paloma, ~300–1200 Hz), B2 = 1500–3000 Hz (transición), B3 = 3000–8000 Hz (canto del copetón, ~2500–7000 Hz). Empiezan en 200 Hz y terminan en 8000 Hz porque el pre-filtro elimina lo que está fuera. La figura es `resultados/figuras/espectros_promedio.png`.
+
+**Rechazo: «sin canto» y «no reconocido».** No cambia la decisión del profesor (menor suma de diferencias absolutas); solo evita dar una especie cuando no corresponde.
+- *Sin canto* (agregado nuestro): si el rango dinámico de la señal filtrada (energía de cuadros de 50 ms, percentil 95 frente a percentil 10) es menor a 6 dB, no hay sílabas y pausas, así que es ruido constante, zumbido o silencio. En el banco, el canto más plano tiene 11 dB; los ruidos de prueba dan menos de 2 dB.
+- *No reconocido* (nota del profesor, pág. 45: agregar la desviación estándar para tener intervalos de energía): la fase 2 guarda, por especie y subbanda, la media y la desviación de las energías de cada grabación, en dB. Si el audio cae fuera de media ± 3·desviación en alguna subbanda de la especie más cercana, se responde «no reconocido». Se usa dB y una desviación mínima de 1 dB porque, al normalizar la energía, la subbanda dominante casi no varía en el banco (0.1–0.2 dB) y el intervalo saldría demasiado estrecho.
 
 ## Preparación y uso
 
@@ -69,7 +77,7 @@ En Windows, activa el entorno con `.venv\Scripts\activate`. Para el micrófono s
 Los bordes iniciales son una base ajustable, no una selección de bandas ya validada. La previsualización dibuja los dos espectros promedio y las líneas divisorias de las subbandas propuestas, sin reemplazar el modelo. Ajusta `--bordes` donde las curvas y sus energías se distingan; usa en el informe la gráfica correspondiente a los bordes finalmente elegidos.
 
 ```bash
-python app/fase2_entrenamiento.py --solo-grafica --bordes 0,2000,4000,6000,8000,10000 --grafica resultados/figuras/espectros_promedio.png
+python app/fase2_entrenamiento.py --solo-grafica --bordes 200,1500,3000,8000 --grafica resultados/figuras/espectros_promedio.png
 python app/fase3_reconocimiento.py --audio datos/banco_aves/prueba/paloma/paloma_008_XC272805_r2.wav
 python app/fase3_reconocimiento.py --evaluar datos/banco_aves
 python app/fase4_interfaz.py
@@ -83,14 +91,13 @@ Cuando los cortes estén revisados, ejecuta la misma orden sin `--solo-grafica` 
 | Fase | Contenido | Estado |
 |---|---|---|
 | 1 | Captura por micrófono + filtro | Hecha |
-| 2 | Entrenamiento: FFT, espectro promedio, subbandas, energías, JSON | Base implementada; falta validar las bandas y la fidelidad matemática |
-| 3 | Reconocimiento y evaluación del error (meta: ≤ 5 %) | Base implementada; faltan más pruebas |
-| 4 | Interfaz, micrófono y aviso de señal insuficiente | Prototipo separado del entrenamiento; falta validar con micrófono físico |
+| 2 | Entrenamiento: FFT, espectro promedio, subbandas, energías, JSON | Hecha: 3 subbandas escogidas sobre los espectros, con intervalos de desviación |
+| 3 | Reconocimiento y evaluación del error (meta: ≤ 5 %) | Hecha: 88/88 aciertos en prueba (0 %), con «sin canto» y «no reconocido» |
+| 4 | Interfaz, micrófono y aviso de señal insuficiente | Hecha; falta validar con micrófono físico |
 | 5 | Informe IEEE (12 a 15 páginas) | Pendiente |
 
 ## Limitaciones conocidas
 
-- Con 24 señales de prueba, un solo error ya es 4.2 % y dos son 8.3 %. Para sustentar el 5 % hace falta un conjunto de prueba más grande.
-- La prueba real es el micrófono: las grabaciones de xeno-canto y el micrófono del computador suenan distinto.
-- El aviso de señal insuficiente usa un umbral provisional de amplitud en la interfaz; no forma parte de la decisión matemática entre especies.
-- La selección de subbandas y las expresiones matemáticas deben cotejarse con las notas completas de clase antes de considerarse definitivas.
+- 0 errores en 88 pruebas: con 95 % de confianza el error real del banco es menor a ~3.4 % (regla del tres, 3/88). Los audios del banco pasaron un filtro de calidad, así que son cantos limpios.
+- La prueba real es el micrófono: las grabaciones de xeno-canto y el micrófono del computador suenan distinto. Los umbrales de rechazo (6 dB, k = 3) se calibraron con el banco y ruidos sintéticos; hay que revisarlos con grabaciones reales.
+- Otra ave que cante en la misma banda que el copetón (por ejemplo el sirirí) se reconoce como copetón: con 3 subbandas de energía no se puede distinguir. Solo hay dos clases.
