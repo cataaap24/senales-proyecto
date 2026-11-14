@@ -49,8 +49,9 @@ class PruebasDeFases(unittest.TestCase):
                               side_effect=lambda nombre: (frecuencias, magnitudes[nombre])):
                 modelo, _, _ = fase2_entrenamiento.entrenar(banco, [0, 2, 4, 6])
 
-            # Promediar 1 y 3 antes de elevar al cuadrado da 4, no 5.
-            self.assertEqual(modelo["vectores_energia"]["paloma"], [4.0] * 3)
+            # Método del profesor: energía de cada grabación (1 y 9) y luego el promedio = 5.
+            # (Promediar primero los espectros daría 4.)
+            self.assertEqual(modelo["vectores_energia"]["paloma"], [5.0] * 3)
             destino = Path(temporal) / "modelo.json"
             fase2_entrenamiento.guardar_modelo(modelo, destino)
             cargado = fase3_reconocimiento.cargar_modelo(destino)
@@ -103,6 +104,24 @@ class PruebasDeFases(unittest.TestCase):
         # 10 dB ± 3·max(0.1, 1) = [7, 13];  -20 dB ± 15 = [-35, -5]
         self.assertTrue(banco_filtros.dentro_de_intervalo([10 ** 1.2, 10 ** -3.0], intervalo))
         self.assertFalse(banco_filtros.dentro_de_intervalo([10 ** 1.4, 10 ** -2.0], intervalo))
+
+
+    def test_ejercicio_del_tablero(self):
+        """Ejercicio de clase: A = {(1,0,0,2), (2,1,0,0)}, 2 subbandas iguales de la FFT completa."""
+        bordes = [0, 2, 4]                       # fs = 4  ->  la frecuencia de cada punto es k
+        vectores = []
+        for x in ([1, 0, 0, 2], [2, 1, 0, 0]):
+            f, mag = banco_filtros.calcular_fft_completa(np.array(x, float), 4)
+            # El ejercicio usa 2 subbandas; el proyecto exige de 3 a 8, así que se omite esa validación.
+            with patch.object(banco_filtros, "validar_bordes", side_effect=np.asarray):
+                vectores.append(banco_filtros.energias(mag, f, bordes))
+        np.testing.assert_allclose(vectores[0], [7, 3])     # E_x1 = [7 3]
+        np.testing.assert_allclose(vectores[1], [7, 3])     # E_x2 = [7 3]
+        np.testing.assert_allclose(np.mean(vectores, axis=0), [7, 3])   # E_mA = [7 3]
+        # Reconocimiento del tablero: Ex = (2 1 1), EA = (7 2 4), EB = (4 5 2)
+        ex = np.array([2, 1, 1.0])
+        self.assertEqual(banco_filtros.distancia(ex, np.array([7, 2, 4.0])), 9)
+        self.assertEqual(banco_filtros.distancia(ex, np.array([4, 5, 2.0])), 7)
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ BORDES_INICIALES = (200, 1500, 3000, 8000)
 
 
 def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
-    """Obtiene un espectro promedio y su vector de energías por especie."""
+    """Promedia los vectores de energía de las grabaciones de cada especie."""
     banco = Path(banco)
     bordes = validar_bordes(bordes)
     rutas = {
@@ -59,15 +59,15 @@ def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
             if progreso is not None:
                 progreso(completados, total)
 
-        # Primero se promedian los espectros; después se calcula la energía
-        # del espectro promedio, tal como indica la secuencia del README.
-        promedio = np.sum(espectros, axis=0) / len(espectros)
-        promedios[especie] = promedio
-        vectores[especie] = energias(promedio, frecuencias, bordes).tolist()
-
-        # Nota del profesor: además del promedio, la desviación estándar de las energías de cada
-        # grabación da un intervalo por subbanda. Sirve para responder «no reconocido».
+        # Método del profesor (ejercicio en clase): se calcula el vector de energías de CADA
+        # grabación, E_i = (1/L_i) * sum ||X(k)||^2 en cada subbanda, y luego se promedian esos
+        # vectores. El espectro promedio solo se usa para graficar y escoger los cortes.
+        promedios[especie] = np.sum(espectros, axis=0) / len(espectros)
         individuales = np.array([energias(m, frecuencias, bordes) for m in espectros])
+        vectores[especie] = individuales.mean(axis=0).tolist()
+
+        # Nota del profesor: además del promedio, la desviación estándar de esas energías da un
+        # intervalo por subbanda. Sirve para responder «no reconocido».
         en_db = 10 * np.log10(individuales + 1e-20)
         media_db[especie] = en_db.mean(axis=0).tolist()
         desviacion_db[especie] = en_db.std(axis=0).tolist()

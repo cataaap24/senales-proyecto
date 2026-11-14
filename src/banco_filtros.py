@@ -10,7 +10,7 @@ from math import gcd
 import numpy as np
 
 from config import FS, N, UMBRAL_ACTIVIDAD_DB
-from espectro import calcular_fft
+from espectro import calcular_fft_completa  # noqa: F401  (también la usan los tests)
 from preprocesamiento import acondicionar
 
 
@@ -43,7 +43,7 @@ def recortar(audio):
 def espectro(audio):
     """Calcula |X(k)| tras aplicar el mismo acondicionamiento en ambas fases."""
     audio_acondicionado = acondicionar(recortar(audio))
-    return calcular_fft(audio_acondicionado, FS)
+    return calcular_fft_completa(audio_acondicionado, FS)
 
 
 def validar_bordes(bordes):
@@ -51,10 +51,10 @@ def validar_bordes(bordes):
     bordes = np.asarray(bordes, dtype=float)
     if (bordes.ndim != 1 or not 4 <= len(bordes) <= 9
             or not np.all(np.isfinite(bordes))
-            or bordes[0] < 0 or bordes[-1] > FS / 2
+            or bordes[0] < 0 or bordes[-1] > FS
             or not np.all(np.diff(bordes) > 0)):
         raise ValueError(
-            "Se requieren de 3 a 8 subbandas con bordes crecientes entre 0 y Nyquist."
+            "Se requieren de 3 a 8 subbandas con bordes crecientes entre 0 y fs."
         )
     return bordes
 
