@@ -15,11 +15,12 @@ from PySide6.QtGui import (QColor, QPainter, QPen, QBrush, QFont, QLinearGradien
                            QIcon, QPixmap, QPalette)
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QPushButton, QVBoxLayout, QWidget,
+    QPushButton, QSplitter, QSplitterHandle, QTabWidget, QToolTip, QVBoxLayout, QWidget,
 )
 
 import fase3_reconocimiento as reconocimiento
 from config import FS, DURACION, N
+from espectros_guardados import cargar_espectros
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,49 @@ class Tarjeta(QWidget):
         return False
 
 
+class AsaDivisor(QSplitterHandle):
+    """Línea de separación discreta con una zona de arrastre generosa."""
+
+    def __init__(self, orientacion, divisor):
+        super().__init__(orientacion, divisor)
+        self.activa = False
+        self.setAttribute(Qt.WA_Hover)
+
+    def enterEvent(self, evento):
+        self.activa = True
+        self.update()
+        super().enterEvent(evento)
+
+    def leaveEvent(self, evento):
+        self.activa = False
+        self.update()
+        super().leaveEvent(evento)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        color = ACENTO if self.activa else BORDE
+        p.setPen(QPen(color, 1.5))
+        centro = self.rect().center()
+        if self.orientation() == Qt.Horizontal:
+            p.drawLine(QPointF(centro.x(), 0), QPointF(centro.x(), self.height()))
+        else:
+            p.drawLine(QPointF(0, centro.y()), QPointF(self.width(), centro.y()))
+        p.setPen(Qt.NoPen)
+        p.setBrush(color)
+        for desplazamiento in (-8, 0, 8):
+            if self.orientation() == Qt.Horizontal:
+                punto = QPointF(centro.x(), centro.y() + desplazamiento)
+            else:
+                punto = QPointF(centro.x() + desplazamiento, centro.y())
+            p.drawEllipse(punto, 2, 2)
+
+
+class Divisor(QSplitter):
+    def createHandle(self):
+        return AsaDivisor(self.orientation(), self)
+
+
 class Onda(Tarjeta):
     """Forma de onda como barras; las barras ya recorridas se iluminan."""
     PASO = 6
@@ -277,6 +321,10 @@ class Onda(Tarjeta):
         p.setPen(APAGADO)
         p.setFont(fuente(11, mono=True))
         p.drawText(QPointF(20, self.height() - 10), "0 s")
+        p.drawText(QRectF(70, self.height() - 24, self.width() - 140, 18),
+                   Qt.AlignCenter, "Tiempo (s)")
+        p.drawText(QRectF(20, 34, self.width() - 40, 16),
+                   Qt.AlignRight, "Amplitud relativa")
         p.drawText(
             QRectF(0, self.height() - 24, self.width() - 20, 18),
             Qt.AlignRight | Qt.AlignVCenter, f"{DURACION:.0f} s",
@@ -300,6 +348,8 @@ class Espectro(Tarjeta):
         self.fase = 0.0
         self.bordes = np.array([0.0, FMAX_INICIAL])
         self.fmax = FMAX_INICIAL
+        self.auto = False
+        self.setMouseTracking(True)
         self.setMinimumHeight(260)
 
     def configurar_modelo(self, modelo):
@@ -310,10 +360,34 @@ class Espectro(Tarjeta):
     def fijar(self, perfil, subtitulo="", vivo=False):
         self.t = np.asarray(perfil, float)
         self.subtitulo, self.vivo = subtitulo, vivo
+        self.auto = not vivo
 
     def vaciar(self):
         self.t = np.zeros(NB_ESPECTRO)
         self.subtitulo, self.vivo = "", False
+
+    def _area(self):
+        return QRectF(60, 58, max(1, self.width() - 80), max(1, self.height() - 58 - 54))
+
+    def mouseMoveEvent(self, evento):
+        area = self._area()
+        punto = evento.position()
+        if area.contains(punto):
+            indice = min(len(self.v) - 1, max(0, round(
+                (punto.x() - area.left()) / area.width() * (len(self.v) - 1))))
+            valor = float(self.v[indice])
+            y = area.bottom() - valor * area.height() * 0.94
+            if abs(punto.y() - y) <= 9:
+                hz = indice / (len(self.v) - 1) * self.fmax
+                db = (-60 + 60 * valor) if self.auto else (-90 + 80 * valor)
+                QToolTip.showText(evento.globalPosition().toPoint(),
+                                  f"{hz / 1000:.2f} kHz\nNivel: {db:.1f} dB", self)
+                return
+        QToolTip.hideText()
+
+    def leaveEvent(self, evento):
+        QToolTip.hideText()
+        super().leaveEvent(evento)
 
     def tick(self, dt):
         tasa = np.where(self.t > self.v, 24.0, 9.0)
@@ -329,7 +403,7 @@ class Espectro(Tarjeta):
     def paintEvent(self, _):
         p = QPainter(self)
         self.dibujar_fondo(p)
-        a = QRectF(20, 50, self.width() - 40, self.height() - 50 - 32)
+        a = self._area()
         bordes = self.bordes
         px = lambda f: a.left() + f / self.fmax * a.width()
 
@@ -341,6 +415,14 @@ class Espectro(Tarjeta):
                     px(bordes[i]), a.top(), px(bordes[i + 1]) - px(bordes[i]), a.height()
                 ))
         p.setFont(fuente(11, mono=True))
+        piso, techo = (-60, 0) if self.auto else (-90, -10)
+        for fraccion in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
+            y = a.bottom() - fraccion * a.height() * 0.94
+            p.setPen(con_alfa(APAGADO, 100))
+            p.drawText(QRectF(5, y - 9, 44, 18), Qt.AlignRight | Qt.AlignVCenter,
+                       f"{piso + (techo - piso) * fraccion:g}")
+        p.setPen(APAGADO)
+        p.drawText(QRectF(60, 36, a.width(), 17), Qt.AlignLeft, "Nivel (dB)")
         for i, b in enumerate(bordes):
             x = px(b)
             if 0 < i < len(bordes) - 1:
@@ -357,6 +439,9 @@ class Espectro(Tarjeta):
             p.drawText(QRectF(x0, a.bottom() + 8, ancho, 16), alin | Qt.AlignVCenter, etiqueta)
         p.setPen(QPen(con_alfa(APAGADO, 110), 1))
         p.drawLine(QPointF(a.left(), a.bottom()), QPointF(a.right(), a.bottom()))
+        p.setPen(APAGADO)
+        p.drawText(QRectF(a.left(), a.bottom() + 26, a.width(), 17),
+                   Qt.AlignCenter, "Frecuencia (kHz)")
 
         def curva(vals):
             k = np.convolve(np.pad(vals, 1, mode="edge"), [0.25, 0.5, 0.25], mode="valid")
@@ -400,6 +485,178 @@ class Espectro(Tarjeta):
                 p.drawEllipse(QPointF(self.width() - 20 - ancho - 12, 24), 4, 4)
 
 
+class EspectrosPromedio(Tarjeta):
+    """Dibuja las curvas guardadas por especie y los cortes del modelo."""
+
+    def __init__(self):
+        super().__init__("Espectros promedio por especie")
+        self.frecuencias = None
+        self.series = {}
+        self.modelo = None
+        self.mensaje = "Los espectros aparecerán cuando la fase 2 exporte sus datos."
+        self.setMinimumHeight(380)
+        self.setMouseTracking(True)
+        self.hover = None
+        self.setAccessibleName("Espectros promedio por especie")
+
+    def fijar(self, modelo, frecuencias, series):
+        self.modelo = modelo
+        self.frecuencias = frecuencias
+        self.series = series
+        self.mensaje = ""
+        self.hover = None
+        self.setAccessibleDescription(
+            "Curvas de magnitud FFT promedio por especie. "
+            "El eje horizontal es k omega cero; las marcas indican el índice k. "
+            "Las líneas verticales marcan las subbandas del modelo."
+        )
+        self.update()
+
+    def vaciar(self, mensaje):
+        self.frecuencias = None
+        self.series = {}
+        self.mensaje = mensaje
+        self.hover = None
+        QToolTip.hideText()
+        self.setAccessibleDescription(mensaje)
+        self.update()
+
+    def _escala(self):
+        area = QRectF(66, 100, max(1, self.width() - 94), max(1, self.height() - 158))
+        puntos_fft = int(self.modelo["fs"] * self.modelo["duracion"])
+        frecuencia_final = (puntos_fft - 1) * self.modelo["fs"] / puntos_fft
+        tope = max(max(float(np.max(v)) for v in self.series.values()) * 1.08, 1e-12)
+        return area, 0.0, frecuencia_final, tope
+
+    def mouseMoveEvent(self, evento):
+        if self.frecuencias is None or not self.series:
+            return
+        area, minimo, maximo, tope = self._escala()
+        punto = evento.position()
+        anterior = self.hover
+        self.hover = None
+        if area.contains(punto):
+            hz = minimo + (punto.x() - area.left()) / area.width() * (maximo - minimo)
+            if not self.frecuencias[0] <= hz <= self.frecuencias[-1]:
+                QToolTip.hideText()
+                if anterior is not None:
+                    self.update()
+                return
+            cercano = None
+            for especie, valores in self.series.items():
+                magnitud = float(np.interp(hz, self.frecuencias, valores))
+                y = area.bottom() - magnitud / tope * area.height()
+                distancia = abs(punto.y() - y)
+                if distancia <= 9 and (cercano is None or distancia < cercano[0]):
+                    cercano = (distancia, especie, magnitud, y)
+            if cercano:
+                _, especie, magnitud, y = cercano
+                self.hover = (especie, hz, magnitud, QPointF(punto.x(), y))
+                nombre = self.modelo["especies"][especie]["nombre"]
+                puntos_fft = int(self.modelo["fs"] * self.modelo["duracion"])
+                indice_k = hz * puntos_fft / self.modelo["fs"]
+                omega = 2 * np.pi * indice_k / puntos_fft
+                QToolTip.showText(evento.globalPosition().toPoint(),
+                                  f"{nombre} · k ≈ {indice_k:.0f}\n"
+                                  f"kω₀ = {omega:.3f} rad/muestra\n"
+                                  f"Magnitud promedio: {magnitud:.3g}", self)
+        if self.hover is None:
+            QToolTip.hideText()
+        if self.hover != anterior:
+            self.update()
+
+    def leaveEvent(self, evento):
+        self.hover = None
+        QToolTip.hideText()
+        self.update()
+        super().leaveEvent(evento)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        self.dibujar_fondo(p)
+        if self.frecuencias is None:
+            p.setPen(APAGADO)
+            p.setFont(fuente(14))
+            p.drawText(self.rect().adjusted(36, 60, -36, -36),
+                       Qt.AlignCenter | Qt.TextWordWrap, self.mensaje)
+            return
+
+        area, minimo, maximo, tope = self._escala()
+        bordes = self.modelo["bordes_hz"]
+        puntos_fft = int(self.modelo["fs"] * self.modelo["duracion"])
+
+        def x_de(hz):
+            return area.left() + (hz - minimo) / (maximo - minimo) * area.width()
+
+        def y_de(magnitud):
+            return area.bottom() - magnitud / tope * area.height()
+
+        p.setFont(fuente(11, mono=True))
+        marcas = [(0.0, 0)]
+        marcas.extend((float(borde), round(float(borde) * puntos_fft / self.modelo["fs"]))
+                      for borde in bordes)
+        marcas.append((maximo, puntos_fft - 1))
+        ultima_etiqueta = -float("inf")
+        for i, (hz, indice_k) in enumerate(marcas):
+            x = x_de(hz)
+            if 0 < i < len(marcas) - 1:
+                p.setPen(QPen(con_alfa(APAGADO, 130), 1, Qt.DashLine))
+                p.drawLine(QPointF(x, area.top()), QPointF(x, area.bottom()))
+            if x - ultima_etiqueta < 64 and i != len(marcas) - 1:
+                continue
+            p.setPen(APAGADO)
+            ancho = 90
+            x0 = x - ancho / 2
+            p.drawText(QRectF(x0, area.bottom() + 8, ancho, 18),
+                       Qt.AlignHCenter, f"{indice_k:,}".replace(",", " "))
+            ultima_etiqueta = x
+
+        for fraccion in (0.0, 0.5, 1.0):
+            y = area.bottom() - fraccion * area.height()
+            p.setPen(QPen(con_alfa(APAGADO, 70), 1))
+            p.drawLine(QPointF(area.left(), y), QPointF(area.right(), y))
+            p.setPen(APAGADO)
+            p.drawText(QRectF(4, y - 9, 54, 18), Qt.AlignRight | Qt.AlignVCenter,
+                       f"{fraccion * tope:.2g}")
+
+        p.setPen(QPen(APAGADO, 1))
+        p.drawLine(QPointF(area.left(), area.top()), QPointF(area.left(), area.bottom()))
+        p.drawLine(QPointF(area.left(), area.bottom()), QPointF(area.right(), area.bottom()))
+        p.drawText(QRectF(area.left(), area.bottom() + 31, area.width(), 20),
+                   Qt.AlignCenter, "kω₀  (ω₀ = 2π/N rad/muestra; marcas en k)")
+        p.drawText(QRectF(18, 48, 260, 20), Qt.AlignLeft, "Magnitud promedio ‖X(k)‖")
+
+        colores = colores_del_modelo(self.modelo)
+        p.save()
+        p.setClipRect(area)
+        for indice, (especie, magnitudes) in enumerate(self.series.items()):
+            ruta = QPainterPath(QPointF(x_de(float(self.frecuencias[0])),
+                                       y_de(float(magnitudes[0]))))
+            for hz, magnitud in zip(self.frecuencias[1:], magnitudes[1:]):
+                ruta.lineTo(x_de(float(hz)), y_de(float(magnitud)))
+            estilo_linea = Qt.SolidLine if indice == 0 else Qt.DashLine
+            p.setPen(QPen(colores[especie], 2.3, estilo_linea, Qt.RoundCap, Qt.RoundJoin))
+            p.drawPath(ruta)
+        p.restore()
+
+        if self.hover:
+            especie, _, _, punto = self.hover
+            p.setPen(QPen(colores[especie], 2))
+            p.setBrush(TARJETA)
+            p.drawEllipse(punto, 5, 5)
+
+        p.setFont(fuente(12, QFont.Medium))
+        posicion = area.left()
+        for indice, especie in enumerate(self.series):
+            estilo_linea = Qt.SolidLine if indice == 0 else Qt.DashLine
+            p.setPen(QPen(colores[especie], 2.3, estilo_linea))
+            p.drawLine(QPointF(posicion, 77), QPointF(posicion + 26, 77))
+            p.setPen(TEXTO)
+            nombre = self.modelo["especies"][especie]["nombre"]
+            p.drawText(QPointF(posicion + 34, 82), nombre)
+            posicion += 52 + p.fontMetrics().horizontalAdvance(nombre)
+
+
 class Energias(Tarjeta):
     """Energía por subbanda: el audio frente a los vectores de cada especie."""
 
@@ -411,6 +668,8 @@ class Energias(Tarjeta):
         self.colores = {}
         self.bordes = np.array([])
         self.t = 0.0
+        self.logs = {}
+        self.setMouseTracking(True)
         self.setMinimumHeight(210)
 
     def fijar(self, res):
@@ -425,12 +684,47 @@ class Energias(Tarjeta):
                      for clave, vector in res["vectores"].items()})
         lo = min(v.min() for v in logs.values()) - 0.2
         hi = max(v.max() for v in logs.values()) + 0.15
+        self.logs = logs
+        self.lo, self.hi = lo, hi
         self.datos = {k: (v - lo) / (hi - lo) for k, v in logs.items()}
         self.ganadora = res["especie"] if res.get("estado", "especie") == "especie" else None
         self.t = 0.0
 
     def vaciar(self):
         self.datos = None
+        QToolTip.hideText()
+
+    def _area(self):
+        return QRectF(58, 50, max(1, self.width() - 78), max(1, self.height() - 50 - 84))
+
+    def mouseMoveEvent(self, evento):
+        if self.datos is None:
+            return
+        area = self._area()
+        punto = evento.position()
+        if not area.contains(punto):
+            QToolTip.hideText()
+            return
+        nb = len(self.bordes) - 1
+        banda = min(nb - 1, int((punto.x() - area.left()) / area.width() * nb))
+        gw = area.width() / nb
+        nseries = len(self.series)
+        bw = max(2.0, min(15.0, (gw - 10) / nseries - 2))
+        x0 = area.left() + banda * gw + (gw - (nseries * bw + (nseries - 1) * 3)) / 2
+        for j, (clave, nombre) in enumerate(self.series):
+            x = x0 + j * (bw + 3)
+            h = self.datos[clave][banda] * area.height()
+            if x - 3 <= punto.x() <= x + bw + 3 and area.bottom() - h - 4 <= punto.y() <= area.bottom():
+                QToolTip.showText(evento.globalPosition().toPoint(),
+                    f"{nombre} · {self.bordes[banda] / 1000:g}–{self.bordes[banda + 1] / 1000:g} kHz\n"
+                    f"Energía: {10 ** self.logs[clave][banda]:.3g}\n"
+                    f"log₁₀(energía): {self.logs[clave][banda]:.3f}", self)
+                return
+        QToolTip.hideText()
+
+    def leaveEvent(self, evento):
+        QToolTip.hideText()
+        super().leaveEvent(evento)
 
     def tick(self, dt):
         if self.datos is None or self.t >= 1.6:
@@ -441,7 +735,7 @@ class Energias(Tarjeta):
     def paintEvent(self, _):
         p = QPainter(self)
         self.dibujar_fondo(p)
-        a = QRectF(20, 48, self.width() - 40, self.height() - 48 - 62)
+        a = self._area()
         if self.datos is None:
             p.setPen(APAGADO)
             p.setFont(fuente(13))
@@ -454,6 +748,16 @@ class Energias(Tarjeta):
         bw = max(2.0, min(15.0, (gw - 10) / nseries - 2))
         p.setPen(QPen(con_alfa(APAGADO, 110), 1))
         p.drawLine(QPointF(a.left(), a.bottom()), QPointF(a.right(), a.bottom()))
+        p.setFont(fuente(10, mono=True))
+        for fraccion in (0.0, 0.5, 1.0):
+            y = a.bottom() - fraccion * a.height()
+            p.setPen(QPen(con_alfa(APAGADO, 65), 1))
+            p.drawLine(QPointF(a.left(), y), QPointF(a.right(), y))
+            p.setPen(APAGADO)
+            p.drawText(QRectF(4, y - 9, 48, 18), Qt.AlignRight | Qt.AlignVCenter,
+                       f"{self.lo + fraccion * (self.hi - self.lo):.1f}")
+        p.setFont(fuente(10, QFont.Medium))
+        p.drawText(QRectF(58, 34, a.width(), 14), Qt.AlignLeft, "log₁₀(energía)")
         for i in range(nb):
             t = min(1.0, max(0.0, self.t / 0.9 - i * 0.12))
             e = 1 - (1 - t) ** 3
@@ -474,9 +778,8 @@ class Energias(Tarjeta):
                        Qt.AlignCenter, etiqueta)
         p.setPen(APAGADO)
         p.setFont(fuente(10, mono=True))
-        nota = ("kHz · escala logarítmica" if nb <= 5
-                else f"Bandas B1–B{nb} · cortes en el espectro")
-        p.drawText(QRectF(a.left(), a.bottom() + 20, a.width(), 14), Qt.AlignCenter, nota)
+        p.drawText(QRectF(a.left(), a.bottom() + 22, a.width(), 16),
+                   Qt.AlignCenter, "Subbanda (kHz)" if nb <= 5 else "Subbanda")
         x = a.left()
         p.setFont(fuente(11))
         for clave, nombre in self.series:
@@ -604,6 +907,12 @@ def estilo():
     return f"""
 QMainWindow, QWidget#raiz {{ background: {c['fondo']}; }}
 QFrame#panel {{ background: {c['tarjeta']}; border: 1px solid {c['borde']}; border-radius: 16px; }}
+QTabWidget::pane {{ border: 0; background: transparent; }}
+QTabBar::tab {{ background: {c['boton']}; color: {c['apagado']}; border: 1px solid {c['borde']};
+    border-radius: 9px; min-height: 38px; min-width: 160px; padding: 0 18px; margin-right: 8px;
+    font-size: 13px; font-weight: 600; }}
+QTabBar::tab:selected {{ background: {c['tarjeta']}; color: {c['texto']}; border-color: {c['acento']}; }}
+QTabBar::tab:focus {{ border: 2px solid {c['foco']}; }}
 QLabel {{ background: transparent; color: {c['texto']}; }}
 QLabel#sub {{ color: {c['apagado']}; }}
 QLabel#aviso {{ color: {c['error']}; }}
@@ -628,8 +937,8 @@ class Ventana(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Reconocedor de aves")
-        self.resize(1240, 800)
-        self.setMinimumSize(1060, 760)
+        self.resize(1240, 900)
+        self.setMinimumSize(1060, 840)
         self.ajustes = QSettings("senales-aves", "ReconocedorAves")
         guardado = self.ajustes.value("tema", "oscuro")
         self.tema = guardado if guardado in TEMAS else "oscuro"
@@ -673,24 +982,42 @@ class Ventana(QMainWindow):
         cab.addWidget(self.b_tema, alignment=Qt.AlignVCenter)
         col.addLayout(cab)
 
-        cuerpo = QHBoxLayout()
-        cuerpo.setSpacing(18)
-        col.addLayout(cuerpo, 1)
+        self.pestanas = QTabWidget()
+        self.pestanas.setDocumentMode(True)
+        col.addWidget(self.pestanas, 1)
+        pagina_reconocimiento = QWidget()
+        cuerpo = QVBoxLayout(pagina_reconocimiento)
+        cuerpo.setContentsMargins(0, 12, 0, 0)
+        self.pestanas.addTab(pagina_reconocimiento, "Reconocimiento")
 
-        izq = QVBoxLayout()
-        izq.setSpacing(18)
+        self.divisor_columnas = Divisor(Qt.Horizontal)
+        self.divisor_columnas.setHandleWidth(12)
+        self.divisor_columnas.setChildrenCollapsible(False)
+        self.divisor_columnas.setAccessibleName("Ajustar ancho de las gráficas")
+        cuerpo.addWidget(self.divisor_columnas)
+
+        self.divisor_graficas = Divisor(Qt.Vertical)
+        self.divisor_graficas.setHandleWidth(12)
+        self.divisor_graficas.setChildrenCollapsible(False)
+        self.divisor_graficas.setAccessibleName("Ajustar altura de forma de onda y espectro")
         self.onda = Onda()
         self.espectro = Espectro()
-        izq.addWidget(self.onda, 0)
-        izq.addWidget(self.espectro, 1)
-        cuerpo.addLayout(izq, 1)
+        self.divisor_graficas.addWidget(self.onda)
+        self.divisor_graficas.addWidget(self.espectro)
+        self.divisor_graficas.setStretchFactor(0, 1)
+        self.divisor_graficas.setStretchFactor(1, 2)
+        self.divisor_columnas.addWidget(self.divisor_graficas)
 
-        der = QVBoxLayout()
+        columna_derecha = QWidget()
+        columna_derecha.setMinimumWidth(410)
+        der = QVBoxLayout(columna_derecha)
+        der.setContentsMargins(0, 0, 0, 0)
         der.setSpacing(18)
-        cuerpo.addLayout(der)
+        self.divisor_columnas.addWidget(columna_derecha)
+        self.divisor_columnas.setStretchFactor(0, 3)
+        self.divisor_columnas.setStretchFactor(1, 2)
 
         panel = QFrame(objectName="panel")
-        panel.setFixedWidth(370)
         pl = QVBoxLayout(panel)
         pl.setContentsMargins(20, 20, 20, 16)
         pl.setSpacing(10)
@@ -717,15 +1044,83 @@ class Ventana(QMainWindow):
 
         self.tarjeta_res = Resultado()
         self.energias = Energias()
-        self.tarjeta_res.setFixedWidth(370)
-        self.energias.setFixedWidth(370)
-        der.addWidget(self.tarjeta_res)
-        der.addWidget(self.energias, 1)
+        self.divisor_resultados = Divisor(Qt.Vertical)
+        self.divisor_resultados.setHandleWidth(12)
+        self.divisor_resultados.setChildrenCollapsible(False)
+        self.divisor_resultados.setAccessibleName("Ajustar altura de resultado y energía por subbanda")
+        self.divisor_resultados.addWidget(self.tarjeta_res)
+        self.divisor_resultados.addWidget(self.energias)
+        self.divisor_resultados.setStretchFactor(0, 1)
+        self.divisor_resultados.setStretchFactor(1, 2)
+        der.addWidget(self.divisor_resultados, 1)
+        for clave, divisor, tamanos in (
+            ("columnas", self.divisor_columnas, [670, 460]),
+            ("graficas", self.divisor_graficas, [240, 400]),
+            ("resultados", self.divisor_resultados, [190, 300]),
+        ):
+            estado = self.ajustes.value(f"divisor/{clave}")
+            if estado is None or not divisor.restoreState(estado):
+                divisor.setSizes(tamanos)
+            divisor.splitterMoved.connect(
+                lambda _pos, _indice, nombre=clave, control=divisor:
+                self.ajustes.setValue(f"divisor/{nombre}", control.saveState())
+            )
+
+        pagina_espectros = QWidget()
+        contenido = QVBoxLayout(pagina_espectros)
+        contenido.setContentsMargins(0, 12, 0, 0)
+        contenido.setSpacing(16)
+        cabecera = QHBoxLayout()
+        titulo_espectros = QLabel("Comparación de especies")
+        titulo_espectros.setFont(fuente(19, QFont.DemiBold))
+        cabecera.addWidget(titulo_espectros)
+        cabecera.addStretch()
+        self.b_recargar_espectros = QPushButton("Actualizar datos")
+        self.b_recargar_espectros.setCursor(Qt.PointingHandCursor)
+        self.b_recargar_espectros.setAccessibleName("Actualizar espectros promedio")
+        cabecera.addWidget(self.b_recargar_espectros)
+        contenido.addLayout(cabecera)
+        self.espectros_promedio = EspectrosPromedio()
+        contenido.addWidget(self.espectros_promedio, 1)
+        self.estado_espectros = QLabel("")
+        self.estado_espectros.setObjectName("sub")
+        self.estado_espectros.setFont(fuente(12))
+        self.estado_espectros.setWordWrap(True)
+        contenido.addWidget(self.estado_espectros)
+
+        notas = QHBoxLayout()
+        notas.setSpacing(16)
+        for titulo, descripcion in (
+            ("Qué muestran las curvas",
+             "Cada trazo une las magnitudes FFT promedio de una especie. "
+             "Los puntos provienen de las grabaciones de entrenamiento."),
+            ("Energía de referencia por banda", ""),
+        ):
+            tarjeta = QFrame(objectName="panel")
+            caja = QVBoxLayout(tarjeta)
+            caja.setContentsMargins(18, 16, 18, 16)
+            caja.setSpacing(8)
+            encabezado = QLabel(titulo)
+            encabezado.setFont(fuente(14, QFont.DemiBold))
+            texto = QLabel(descripcion)
+            texto.setObjectName("sub")
+            texto.setFont(fuente(13))
+            texto.setWordWrap(True)
+            if not descripcion:
+                self.resumen_modelo = texto
+            caja.addWidget(encabezado)
+            caja.addWidget(texto)
+            caja.addStretch()
+            notas.addWidget(tarjeta, 1)
+        contenido.addLayout(notas)
+        self.pestanas.addTab(pagina_espectros, "Espectros promedio")
 
         self.graficas = [self.onda, self.espectro, self.energias, self.tarjeta_res]
         self.b_mic.clicked.connect(self.alternar_microfono)
         self.b_cargar.clicked.connect(self.cargar)
         self.b_play.clicked.connect(self.alternar_reproduccion)
+        self.b_recargar_espectros.clicked.connect(self.actualizar_espectros)
+        self.pestanas.currentChanged.connect(self.cambio_de_pestana)
         self.aplicar_tema()
 
         self.cargar_modelo()
@@ -748,6 +1143,7 @@ class Ventana(QMainWindow):
             clave: COLORES_ESPECIES[i % len(COLORES_ESPECIES)]
             for i, clave in enumerate(especies_visibles)
         }
+        self.espectros_promedio.update()
         self.update_all()
 
     def alternar_tema(self):
@@ -791,6 +1187,40 @@ class Ventana(QMainWindow):
     def update_all(self):
         for g in self.graficas:
             g.update()
+
+    def cambio_de_pestana(self, indice):
+        if indice == 1:
+            self.actualizar_espectros()
+
+    def actualizar_espectros(self):
+        """Vuelve a leer los dos archivos existentes; nunca inicia entrenamiento."""
+        if not self.cargar_modelo():
+            mensaje = "Primero se necesita un modelo válido de la fase 2."
+            self.espectros_promedio.vaciar(mensaje)
+            self.estado_espectros.clear()
+            self.resumen_modelo.setText(mensaje)
+            return
+        bordes = self.modelo["bordes_hz"]
+        bandas = " · ".join(
+            f"B{i}: {inferior:g}–{superior:g} Hz"
+            for i, (inferior, superior) in enumerate(zip(bordes[:-1], bordes[1:]), 1)
+        )
+        referencias = [bandas]
+        for especie, datos in self.modelo["especies"].items():
+            valores = " · ".join(f"{valor:.3g}" for valor in self.modelo["vectores_energia"][especie])
+            referencias.append(f"{datos['nombre']}: {valores}")
+        self.resumen_modelo.setText("\n".join(referencias))
+        try:
+            frecuencias, series = cargar_espectros(self.modelo)
+        except (OSError, ValueError) as error:
+            mensaje = str(error)
+            self.espectros_promedio.vaciar(mensaje)
+            self.estado_espectros.clear()
+            return
+        self.espectros_promedio.fijar(self.modelo, frecuencias, series)
+        self.estado_espectros.setText(
+            "FFT completa · eje kω₀ · escala vertical lineal"
+        )
 
     # ---- estado de la interfaz ----
     def refrescar_botones(self):

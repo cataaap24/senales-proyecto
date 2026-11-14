@@ -4,13 +4,49 @@ Reconoce tras una captura de cinco segundos, con el micrófono o un archivo, dos
 
 La interfaz no entrena. La fase 2 genera explícitamente un modelo JSON; la fase 3 lo carga para reconocer y evaluar; la fase 4 solo presenta los resultados.
 
+La interfaz tiene dos pestañas: **Reconocimiento** conserva el análisis del audio ingresado;
+**Espectros promedio** muestra las dos curvas de entrenamiento cuando está disponible
+`modelo/espectros_promedio.json`. Esta pestaña permite actualizar los archivos sin reiniciar la ventana.
+
+### Contrato de la gráfica de espectros promedio
+
+El archivo de curvas es independiente de `modelo/vectores_energia.json`, que no cambia.
+La fase 2 lo exporta después de escribir el modelo, usando los espectros promedio
+que ya calcula. El esquema es (los marcadores entre corchetes representan arreglos numéricos):
+
+```text
+{
+  "version": 2,
+  "modelo_sha256": "<sha256 de los bytes finales de vectores_energia.json>",
+  "fft_puntos": <N = fs por duración>,
+  "bordes_hz": [<los mismos bordes del modelo>],
+  "frecuencias_hz": [<frecuencias crecientes de la FFT completa, de 0 a fs>],
+  "magnitudes": {
+    "paloma": [<magnitudes promedio en esas frecuencias>],
+    "copeton": [<magnitudes promedio en esas frecuencias>]
+  }
+}
+```
+
+Las dos series usan el mismo eje de frecuencias y tienen entre 2 y 4096 puntos finitos,
+no negativos. La fase 2 agrupa los puntos de frecuencia contiguos y promedia sus
+magnitudes para que el archivo sea compacto. No inventa curvas a partir de las
+energías por subbanda. `modelo_sha256` enlaza ambas exportaciones: se calcula sobre
+los bytes del JSON del modelo **ya guardado**. Si falta el archivo o no corresponde al
+modelo activo, la segunda pestaña lo indica sin entrenar ni modificar archivos.
+La pestaña convierte esas frecuencias a la coordenada angular del tablero,
+`kω₀`, donde `ω₀ = 2π/N` radianes por muestra; las marcas muestran los índices `k`.
+Con cinco segundos a 22 050 Hz, `N = 110 250` y el último índice es `110 249`.
+`--solo-grafica` genera únicamente la imagen de previsualización; una ejecución normal
+de la fase 2 guarda el modelo y este JSON juntos.
+
 ## Cómo funciona
 
 1. Grabaciones de duración fija (5 s). Si hay ruido, se filtran.
 2. FFT de cada grabación y magnitud ‖X(k)‖.
 3. Espectro promedio por especie ‖C(k)‖ y gráfica de ambas especies en un mismo plano.
 4. Se eligen 3 a 8 subbandas donde la energía de las especies sea diferente.
-5. Energía por subbanda: E = (1/L) · Σ ‖C_i(k)‖². Estos vectores de referencia se guardan en el modelo.
+5. Para cada grabación se calcula la energía por subbanda: E = (1/L) · Σ ‖X_i(k)‖². Los vectores de energía de cada especie se promedian y se guardan en el modelo.
 6. En reconocimiento: ‖X(k)‖ de la señal nueva, partido en las mismas subbandas, da E_X.
 7. Para cada especie se calcula Σ |E_Xi − E_Ci|. La especie con el valor mínimo es la que se reconoce.
 
@@ -53,7 +89,7 @@ datos/banco_aves/                audios de entrenamiento, prueba y créditos
 
 **Normalización de energía: es un agregado nuestro.** No aparece en el enunciado del proyecto. Se hace porque el algoritmo compara energías absolutas contra vectores de referencia, y con el micrófono la energía sube o baja según el volumen y la distancia al ave. Se normaliza por energía total (no por el valor pico), porque un solo golpe al micrófono cambia el pico de toda la grabación pero casi no cambia su energía total. Debe mencionarse en el informe como parte del acondicionamiento, no del método principal.
 
-**FFT.** Se usa `np.fft.rfft` (solo la mitad no negativa del espectro, porque la señal es real). Las notas usan `y = fft(x)` de Matlab, así que usar la FFT de la librería es fiel al método.
+**FFT.** El entrenamiento y el reconocimiento usan `np.fft.fft` completa, como `y = fft(x)` en las notas de clase. Para señales reales, la segunda mitad del espectro refleja la primera. La visualización en vivo de la interfaz conserva su espectro de ventana independiente.
 
 **Subbandas: 3, escogidas sobre los espectros promedio.** B1 = 200–1500 Hz (arrullo de la paloma, ~300–1200 Hz), B2 = 1500–3000 Hz (transición), B3 = 3000–8000 Hz (canto del copetón, ~2500–7000 Hz). Empiezan en 200 Hz y terminan en 8000 Hz porque el pre-filtro elimina lo que está fuera. La figura es `resultados/figuras/espectros_promedio.png`.
 

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from banco_filtros import cargar_audio, energias, espectro, validar_bordes
 from config import (BANCO, DESVIACION_MINIMA_DB, DURACION, FS, K_DESVIACION, MODELO,
                     PREFILTRO_FC1, PREFILTRO_FC2)
+from espectros_guardados import guardar_espectros
 
 
 # Añadir grabaciones al banco no exige cambiar código. Estos nombres solo
@@ -137,6 +138,8 @@ def main():
     parser = argparse.ArgumentParser(description="Fase 2: entrenar el banco de filtros")
     parser.add_argument("--banco", type=Path, default=BANCO)
     parser.add_argument("--salida", type=Path, default=MODELO)
+    parser.add_argument("--salida-espectros", type=Path,
+                        help="JSON de curvas promedio; por defecto, junto al modelo")
     parser.add_argument("--bordes", default=",".join(map(str, BORDES_INICIALES)),
                         help="Límites en Hz, separados por comas; definen de 3 a 8 subbandas")
     parser.add_argument("--grafica", type=Path,
@@ -155,6 +158,10 @@ def main():
     if not args.solo_grafica:
         destino = guardar_modelo(modelo, args.salida)
         print(f"Modelo guardado en {destino}")
+        salida_espectros = args.salida_espectros or destino.with_name("espectros_promedio.json")
+        curvas = guardar_espectros(modelo, frecuencias, promedios,
+                                  destino=salida_espectros, ruta_modelo=destino)
+        print(f"Espectros guardados en {curvas}")
     print(f"Audios por especie: {modelo['archivos_entrenamiento']}")
 
 
