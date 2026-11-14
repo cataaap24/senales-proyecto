@@ -416,7 +416,7 @@ class Espectro(Tarjeta):
                 ))
         p.setFont(fuente(11, mono=True))
         piso, techo = (-60, 0) if self.auto else (-90, -10)
-        for fraccion in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
+        for fraccion in (0.0, 0.5, 1.0):
             y = a.bottom() - fraccion * a.height() * 0.94
             p.setPen(con_alfa(APAGADO, 100))
             p.drawText(QRectF(5, y - 9, 44, 18), Qt.AlignRight | Qt.AlignVCenter,
@@ -611,7 +611,7 @@ class EspectrosPromedio(Tarjeta):
                        Qt.AlignHCenter, f"{indice_k:,}".replace(",", " "))
             ultima_etiqueta = x
 
-        for fraccion in (0.0, 0.5, 1.0):
+        for fraccion in (0.0, 0.2, 0.4, 0.6, 0.8, 1.0):
             y = area.bottom() - fraccion * area.height()
             p.setPen(QPen(con_alfa(APAGADO, 70), 1))
             p.drawLine(QPointF(area.left(), y), QPointF(area.right(), y))
@@ -629,7 +629,8 @@ class EspectrosPromedio(Tarjeta):
         colores = colores_del_modelo(self.modelo)
         p.save()
         p.setClipRect(area)
-        for indice, (especie, magnitudes) in enumerate(self.series.items()):
+        # La primera especie queda al frente cuando las curvas coinciden.
+        for indice, (especie, magnitudes) in reversed(list(enumerate(self.series.items()))):
             ruta = QPainterPath(QPointF(x_de(float(self.frecuencias[0])),
                                        y_de(float(magnitudes[0]))))
             for hz, magnitud in zip(self.frecuencias[1:], magnitudes[1:]):
