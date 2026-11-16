@@ -123,7 +123,6 @@ def evaluar(banco, modelo):
             raise FileNotFoundError(f"No hay audios de prueba para {esperada}.")
         for archivo in archivos:
             res = reconocer(cargar_audio(archivo), modelo)
-            # Un audio del banco rechazado («sin canto» o «no reconocido») cuenta como error.
             predicha = res["especie"] if res["estado"] == "especie" else res["estado"]
             resultados.append((archivo, esperada, predicha))
     return resultados
