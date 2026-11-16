@@ -24,6 +24,7 @@ Uso:
 """
 
 import argparse
+import csv
 import sys
 from pathlib import Path
 
@@ -74,10 +75,17 @@ BINS_BANDA = np.array([
 ], dtype=float)
 
 
-def archivos_reales(carpeta):
-    """WAV de grabaciones reales (excluye las variantes ya generadas)."""
-    return sorted(r for r in Path(carpeta).glob("paloma_*.wav")
-                  if "_sint_" not in r.name)
+def archivos_reales(carpeta, creditos=None):
+    """WAV de entrenamiento que tienen una fila en creditos.csv."""
+    carpeta = Path(carpeta)
+    creditos = BANCO / "creditos.csv" if creditos is None else Path(creditos)
+    nombres = set()
+    with creditos.open(encoding="utf-8-sig", newline="") as archivo:
+        for fila in csv.DictReader(archivo):
+            ruta = Path(fila["archivo"])
+            if fila.get("conjunto") == "entrenamiento" and ruta.parent.name == "paloma":
+                nombres.add(ruta.name)
+    return sorted(r for r in carpeta.glob("paloma_*.wav") if r.name in nombres)
 
 
 def energia_bandas(audio):
@@ -437,11 +445,11 @@ def calibrar(base, objetivo, ganancias=None):
     return ganancias, energias, residual
 
 
-def escribir_variantes(base, ganancias, destino):
+def escribir_variantes(base, ganancias, destino, inicio=1):
     """Escribe las variantes como WAV PCM16 y devuelve sus rutas."""
     rutas = []
     for i, (audio, ganancia) in enumerate(zip(base, ganancias)):
-        ruta = destino / f"paloma_sint_{i + 1:03d}.wav"
+        ruta = destino / f"paloma_{inicio + i:03d}.wav"
         sf.write(str(ruta), normalizar_pico(ecualizar(audio, ganancia)),
                  FS, subtype="PCM_16")
         rutas.append(ruta)
@@ -464,6 +472,7 @@ def main():
 
     origen = BANCO / "entrenamiento" / "paloma"
     rutas = archivos_reales(origen)
+    inicio = max(int(r.stem.split("_")[1]) for r in rutas) + 1
     print(f"Grabaciones reales disponibles: {len(rutas)}")
 
     reales = np.array([energia_bandas(cargar_audio(r)) for r in rutas])
@@ -492,7 +501,7 @@ def main():
 
     destino = args.piloto if args.piloto else args.salida
     destino.mkdir(parents=True, exist_ok=True)
-    rutas_salida = escribir_variantes(base, ganancias, destino)
+    rutas_salida = escribir_variantes(base, ganancias, destino, inicio)
 
     # Verificación con el camino exacto de la fase 2 y los WAV ya cuantizados.
     verificacion = medir_archivos(rutas_salida)
@@ -513,7 +522,7 @@ def main():
         paso = _paso_calibracion(
             energias_float, respuesta, residual_disco, objetivo, len(base))
         candidatas = ganancias + paso
-        escribir_variantes(base, candidatas, destino)
+        escribir_variantes(base, candidatas, destino, inicio)
         verificacion = medir_archivos(rutas_salida)
         nuevo = _residual_natural(verificacion, objetivo)
         if np.max(np.abs(nuevo)) < maximo:
@@ -527,7 +536,7 @@ def main():
 
     # Dejar en disco la mejor versión encontrada y volver a medirla.
     ganancias = mejor_ganancias
-    escribir_variantes(base, ganancias, destino)
+    escribir_variantes(base, ganancias, destino, inicio)
     verificacion = medir_archivos(rutas_salida)
     residual_disco = _residual_natural(verificacion, objetivo)
 
