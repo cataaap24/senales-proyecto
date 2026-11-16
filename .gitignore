@@ -5,3 +5,4 @@ __pycache__/
 banco_aves.zip
 banco_piloto/
 modelo/*.tmp
+*.zip

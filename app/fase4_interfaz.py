@@ -1,7 +1,3 @@
-"""Fase 4: presentar audios y resultados de la fase 3, sin entrenar el modelo.
-
-Uso: python app/fase4_interfaz.py
-"""
 import logging
 import sys
 import time
@@ -23,8 +19,6 @@ from config import FS, DURACION, N
 
 logger = logging.getLogger(__name__)
 
-# ---------------- Apariencia ----------------
-# Los mismos nombres semánticos alimentan el estilo Qt y las gráficas dibujadas.
 TEMAS = {
     "oscuro": {
         "fondo": "#0F172A", "tarjeta": "#1B2336", "borde": "#2C3852",
@@ -84,7 +78,6 @@ FMAX_INICIAL = 10000.0
 
 
 def colores_del_modelo(modelo):
-    """Asigna colores por posición; los nombres vienen del modelo cargado."""
     return {especie: COLORES_ESPECIES[i % len(COLORES_ESPECIES)]
             for i, especie in enumerate(modelo["especies"])}
 
@@ -119,7 +112,6 @@ HANN = np.hanning(VENTANA)
 
 
 def perfil_espectro(mag, f, auto, fmax):
-    """Reduce un espectro a puntos visibles dentro del rango del modelo."""
     idx = np.searchsorted(f, np.linspace(0, fmax, NB_ESPECTRO + 1))
     fin = int(idx[-1])
     v = np.maximum.reduceat(mag[:fin], idx[:-1])
@@ -129,14 +121,12 @@ def perfil_espectro(mag, f, auto, fmax):
 
 
 def espectro_ventana(seg, fs, fmax):
-    """Espectro de una ventana corta (amplitud relativa a plena escala)."""
     if len(seg) < VENTANA:
         seg = np.pad(seg, (0, VENTANA - len(seg)))
     mag = np.abs(np.fft.rfft(seg[:VENTANA] * HANN)) * 2 / HANN.sum()
     return perfil_espectro(mag, np.fft.rfftfreq(VENTANA, 1 / fs), auto=False, fmax=fmax)
 
 
-# ---------------- Iconos dibujados (sin emojis) ----------------
 def icono(nombre, color, tam=20):
     pm = QPixmap(tam * 2, tam * 2)
     pm.setDevicePixelRatio(2)
@@ -194,7 +184,6 @@ def icono(nombre, color, tam=20):
     return QIcon(pm)
 
 
-# ---------------- Tarjetas graficas ----------------
 class Tarjeta(QWidget):
     def __init__(self, titulo=""):
         super().__init__()
@@ -217,7 +206,6 @@ class Tarjeta(QWidget):
 
 
 class Onda(Tarjeta):
-    """Forma de onda como barras; las barras ya recorridas se iluminan."""
     PASO = 6
 
     def __init__(self):
@@ -288,8 +276,6 @@ class Onda(Tarjeta):
 
 
 class Espectro(Tarjeta):
-    """Espectro con los cortes que declara el modelo activo."""
-
     def __init__(self):
         super().__init__("Espectro de frecuencia")
         self.v = np.zeros(NB_ESPECTRO)
@@ -401,7 +387,6 @@ class Espectro(Tarjeta):
 
 
 class Energias(Tarjeta):
-    """Energía por subbanda: el audio frente a los vectores de cada especie."""
 
     def __init__(self):
         super().__init__("Energía por subbanda")
@@ -490,7 +475,6 @@ class Energias(Tarjeta):
 
 
 class Resultado(Tarjeta):
-    """Muestra el nombre que viene en el modelo o un estado informativo."""
 
     def __init__(self):
         super().__init__("Resultado")
@@ -582,7 +566,6 @@ class Resultado(Tarjeta):
             p.drawText(QRectF(x, 140, ancho, 20), Qt.AlignLeft | Qt.AlignVCenter, nota)
 
 
-# ---------------- Hilos ----------------
 class Trabajo(QThread):
     listo = Signal(object)
     fallo = Signal(str)
@@ -594,11 +577,10 @@ class Trabajo(QThread):
     def run(self):
         try:
             self.listo.emit(self.funcion())
-        except Exception as e:  # se informa en la interfaz
+        except Exception as e:
             self.fallo.emit(str(e))
 
 
-# ---------------- Ventana ----------------
 def estilo():
     c = TONOS
     return f"""
@@ -637,7 +619,7 @@ class Ventana(QMainWindow):
         self.modelo = None
         self.x5 = None
         self.resultado = None
-        self.estado = "reposo"        # reposo | reproduciendo | grabando
+        self.estado = "reposo" 
         self.token = 0
         self.trabajos = set()
         self.cron = QElapsedTimer()
@@ -755,7 +737,6 @@ class Ventana(QMainWindow):
         self.ajustes.setValue("tema", self.tema)
         self.aplicar_tema()
 
-    # ---- animación ----
     def animar(self):
         if not self.reloj.isActive():
             self.cron.restart()
@@ -792,7 +773,6 @@ class Ventana(QMainWindow):
         for g in self.graficas:
             g.update()
 
-    # ---- estado de la interfaz ----
     def refrescar_botones(self):
         grab = self.estado == "grabando"
         rep = self.estado == "reproduciendo"
@@ -814,7 +794,6 @@ class Ventana(QMainWindow):
         self.aviso.setText(texto)
         self.aviso.setVisible(bool(texto))
 
-    # ---- contrato de la fase 3 ----
     def cargar_modelo(self):
         """Lee el JSON actual; nunca inicia el entrenamiento."""
         try:
@@ -838,7 +817,6 @@ class Ventana(QMainWindow):
         trabajo.finished.connect(lambda: self.trabajos.discard(trabajo))
         trabajo.start()
 
-    # ---- acciones ----
     def parar_todo(self):
         if self.estado == "reproduciendo":
             self.detener()
@@ -876,7 +854,6 @@ class Ventana(QMainWindow):
         self.resultado = None
         self.refrescar_botones()
         if np.max(np.abs(self.x5)) < 1e-4:
-            # Esta comprobación de entrada evita clasificar el silencio.
             self.token += 1
             self.tarjeta_res.poner("sin_senal")
             self.poner_aviso("No se detectó señal suficiente para reconocer un canto.")
@@ -910,7 +887,6 @@ class Ventana(QMainWindow):
         self.tarjeta_res.poner(res.get("estado", "especie"), res["especie"])
         self.animar()
 
-    # ---- reproducción ----
     def alternar_reproduccion(self):
         if self.estado == "reproduciendo":
             self.detener()
@@ -948,7 +924,6 @@ class Ventana(QMainWindow):
         self.refrescar_botones()
         self.animar()
 
-    # ---- micrófono ----
     def alternar_microfono(self):
         if self.estado == "grabando":
             self.cancelar_grabacion()

@@ -7,14 +7,14 @@ La interfaz no entrena. La fase 2 genera explícitamente un modelo JSON; la fase
 ## Cómo funciona
 
 1. Grabaciones de duración fija (5 s). Si hay ruido, se filtran.
-2. FFT de cada grabación y magnitud ‖X(k)‖.
-3. Espectro promedio por especie ‖C(k)‖ y gráfica de ambas especies en un mismo plano.
+2. FFT completa de N puntos de cada grabación (k = 0 … N−1) y magnitud ‖X(k)‖.
+3. Espectro promedio por especie ‖C(k)‖ₘ y gráfica de ambas especies en un mismo plano, solo para escoger los cortes.
 4. Se eligen 3 a 8 subbandas donde la energía de las especies sea diferente.
-5. Energía por subbanda: E = (1/L) · Σ ‖C_i(k)‖². Estos vectores de referencia se guardan en el modelo.
+5. Energía de cada grabación en cada subbanda: E_i = (1/L_i) · Σ ‖X(k)‖². Luego se promedian los vectores de todas las grabaciones de la especie (E_A, E_B). Estos vectores se guardan en el modelo.
 6. En reconocimiento: ‖X(k)‖ de la señal nueva, partido en las mismas subbandas, da E_X.
-7. Para cada especie se calcula Σ |E_Xi − E_Ci|. La especie con el valor mínimo es la que se reconoce.
+7. Para cada especie se calcula d = Σ |E_Xi − E_Ci|. La especie con el valor mínimo es la que se reconoce.
 
-Esta es la base de trabajo descrita en el repositorio. El PDF del curso exige las dos especies, 3 a 8 subbandas, reconocimiento por micrófono y error máximo del 5 %, pero remite las ecuaciones detalladas del banco de filtros a lo explicado en clase. Antes de declarar oficial la fase matemática hay que cotejarla con esas notas. La normalización y el recorte por máxima energía son decisiones adicionales del proyecto.
+Así lo resolvió el profesor en clase (ejercicio A = {(1,0,0,2), (2,1,0,0)}, 2 subbandas: E_mA = [7 3]; reconocimiento con d(E_x, E_A) = 5 + 1 + 3 = 9 y d(E_x, E_B) = 7). `tests/test_fases.py` reproduce ese ejercicio. El filtro, la normalización y el recorte por máxima energía son acondicionamiento adicional, aceptado por el monitor.
 
 ## Estructura del proyecto
 
@@ -53,7 +53,7 @@ datos/banco_aves/                audios de entrenamiento, prueba y créditos
 
 **Normalización de energía: es un agregado nuestro.** No aparece en el enunciado del proyecto. Se hace porque el algoritmo compara energías absolutas contra vectores de referencia, y con el micrófono la energía sube o baja según el volumen y la distancia al ave. Se normaliza por energía total (no por el valor pico), porque un solo golpe al micrófono cambia el pico de toda la grabación pero casi no cambia su energía total. Debe mencionarse en el informe como parte del acondicionamiento, no del método principal.
 
-**FFT.** Se usa `np.fft.rfft` (solo la mitad no negativa del espectro, porque la señal es real). Las notas usan `y = fft(x)` de Matlab, así que usar la FFT de la librería es fiel al método.
+**FFT.** Se usa la FFT completa de N puntos (`np.fft.fft`), como `y = fft(x)` en clase. La frecuencia del punto k es k·fs/N; la segunda mitad (de fs/2 a fs) es el espejo de la primera porque la señal es real. Las subbandas se definen en la primera mitad, donde está la información.
 
 **Subbandas: 3, escogidas sobre los espectros promedio.** B1 = 200–1500 Hz (arrullo de la paloma, ~300–1200 Hz), B2 = 1500–3000 Hz (transición), B3 = 3000–8000 Hz (canto del copetón, ~2500–7000 Hz). Empiezan en 200 Hz y terminan en 8000 Hz porque el pre-filtro elimina lo que está fuera. La figura es `resultados/figuras/espectros_promedio.png`.
 

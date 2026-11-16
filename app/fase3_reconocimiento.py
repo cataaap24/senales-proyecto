@@ -1,8 +1,3 @@
-"""Fase 3: cargar un modelo existente, reconocer y medir su error.
-
-Esta fase nunca entrena ni modifica el archivo del modelo.
-"""
-
 import argparse
 import json
 import sys
@@ -18,7 +13,6 @@ from config import DURACION, FS, MODELO, PREFILTRO_FC1, PREFILTRO_FC2
 
 
 def adaptar_modelo_provisional(modelo):
-    """Lee el JSON provisional anterior sin alterar sus vectores ni su archivo."""
     if "version" in modelo or "firma" not in modelo:
         return modelo
 
@@ -40,7 +34,6 @@ def adaptar_modelo_provisional(modelo):
 
 
 def cargar_modelo(ruta=MODELO):
-    """Lee y valida el contrato que la fase 2 entrega a esta fase."""
     ruta = Path(ruta)
     if not ruta.is_file():
         raise FileNotFoundError(f"No existe {ruta}. Ejecuta primero la fase 2.")
@@ -70,14 +63,6 @@ def cargar_modelo(ruta=MODELO):
 
 
 def reconocer(audio, modelo):
-    """Compara el audio con ambos vectores y escoge la menor distancia.
-
-    estado = "especie"        se reconoce la especie con menor distancia (método del profesor)
-             "sin_canto"      la señal no tiene variación de energía de un canto (ruido o silencio)
-             "no_reconocido"  la especie más cercana existe, pero el audio cae fuera de su intervalo
-                              promedio ± k·desviación (nota del profesor, pág. 45)
-    "especie" siempre trae la más cercana, para poder graficar la comparación.
-    """
     frecuencias, magnitud = espectro(audio)
     energia_audio = energias(magnitud, frecuencias, modelo["bordes_hz"])
     distancias = {
@@ -106,7 +91,6 @@ def reconocer(audio, modelo):
 
 
 def intervalo_de(modelo, especie):
-    """Intervalo de energías de una especie, en el formato que espera dentro_de_intervalo."""
     datos = modelo["intervalos"]
     return {"k": datos["k"], "desviacion_minima_db": datos["desviacion_minima_db"],
             "media_db": datos["media_db"][especie],
@@ -114,7 +98,6 @@ def intervalo_de(modelo, especie):
 
 
 def evaluar(banco, modelo):
-    """Mide errores solo con los WAV de prueba, separados del entrenamiento."""
     banco = Path(banco)
     resultados = []
     for esperada in modelo["especies"]:
@@ -123,7 +106,6 @@ def evaluar(banco, modelo):
             raise FileNotFoundError(f"No hay audios de prueba para {esperada}.")
         for archivo in archivos:
             res = reconocer(cargar_audio(archivo), modelo)
-            # Un audio del banco rechazado («sin canto» o «no reconocido») cuenta como error.
             predicha = res["especie"] if res["estado"] == "especie" else res["estado"]
             resultados.append((archivo, esperada, predicha))
     return resultados

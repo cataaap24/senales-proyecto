@@ -1,9 +1,3 @@
-"""Fase 2: construir el modelo; nunca se ejecuta al abrir la interfaz.
-
-Uso: python app/fase2_entrenamiento.py --bordes 0,2000,4000,6000,8000,10000
-Los bordes iniciales son una base ajustable, no una selección definitiva.
-"""
-
 import argparse
 import json
 import sys
@@ -17,22 +11,14 @@ from banco_filtros import cargar_audio, energias, espectro, validar_bordes
 from config import (BANCO, DESVIACION_MINIMA_DB, DURACION, FS, K_DESVIACION, MODELO,
                     PREFILTRO_FC1, PREFILTRO_FC2)
 
-
-# Añadir grabaciones al banco no exige cambiar código. Estos nombres solo
-# describen las dos clases que se estudian en el proyecto.
 ESPECIES = {
     "paloma": {"nombre": "Paloma torcaza", "cientifico": "Zenaida auriculata"},
     "copeton": {"nombre": "Copetón", "cientifico": "Zonotrichia capensis"},
 }
-# Cortes escogidos sobre la gráfica de espectros promedio (resultados/figuras/espectros_promedio.png):
-# B1 200-1500 Hz concentra el arrullo de la paloma (~300-1200 Hz), B2 1500-3000 Hz es la zona de
-# transición y B3 3000-8000 Hz concentra el canto del copetón (~2500-7000 Hz). Empiezan en 200 Hz y
-# terminan en 8000 Hz porque el pre-filtro elimina lo que está fuera de ese rango.
 BORDES_INICIALES = (200, 1500, 3000, 8000)
 
 
 def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
-    """Promedia los vectores de energía de las grabaciones de cada especie."""
     banco = Path(banco)
     bordes = validar_bordes(bordes)
     rutas = {
@@ -58,16 +44,10 @@ def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
             completados += 1
             if progreso is not None:
                 progreso(completados, total)
-
-        # Método del profesor (ejercicio en clase): se calcula el vector de energías de CADA
-        # grabación, E_i = (1/L_i) * sum ||X(k)||^2 en cada subbanda, y luego se promedian esos
-        # vectores. El espectro promedio solo se usa para graficar y escoger los cortes.
         promedios[especie] = np.sum(espectros, axis=0) / len(espectros)
         individuales = np.array([energias(m, frecuencias, bordes) for m in espectros])
         vectores[especie] = individuales.mean(axis=0).tolist()
 
-        # Nota del profesor: además del promedio, la desviación estándar de esas energías da un
-        # intervalo por subbanda. Sirve para responder «no reconocido».
         en_db = 10 * np.log10(individuales + 1e-20)
         media_db[especie] = en_db.mean(axis=0).tolist()
         desviacion_db[especie] = en_db.std(axis=0).tolist()
@@ -92,7 +72,6 @@ def entrenar(banco=BANCO, bordes=BORDES_INICIALES, progreso=None):
 
 
 def guardar_modelo(modelo, destino=MODELO):
-    """Escribe el modelo solo cuando se invoca explícitamente la fase 2."""
     destino = Path(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)
     temporal = destino.with_name(destino.name + ".tmp")
@@ -102,7 +81,6 @@ def guardar_modelo(modelo, destino=MODELO):
 
 
 def guardar_grafica(frecuencias, promedios, bordes, destino):
-    """Muestra los espectros y los límites candidatos de las subbandas."""
     import matplotlib.pyplot as plt
 
     bordes = validar_bordes(bordes)
