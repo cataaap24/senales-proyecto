@@ -24,8 +24,6 @@ from espectros_guardados import cargar_espectros
 
 logger = logging.getLogger(__name__)
 
-# ---------------- Apariencia ----------------
-# Los mismos nombres semánticos alimentan el estilo Qt y las gráficas dibujadas.
 TEMAS = {
     "oscuro": {
         "fondo": "#0F172A", "tarjeta": "#1B2336", "borde": "#2C3852",
@@ -137,7 +135,6 @@ def espectro_ventana(seg, fs, fmax):
     return perfil_espectro(mag, np.fft.rfftfreq(VENTANA, 1 / fs), auto=False, fmax=fmax)
 
 
-# ---------------- Iconos dibujados (sin emojis) ----------------
 def icono(nombre, color, tam=20):
     pm = QPixmap(tam * 2, tam * 2)
     pm.setDevicePixelRatio(2)
@@ -195,7 +192,6 @@ def icono(nombre, color, tam=20):
     return QIcon(pm)
 
 
-# ---------------- Tarjetas graficas ----------------
 class Tarjeta(QWidget):
     def __init__(self, titulo=""):
         super().__init__()
@@ -656,7 +652,6 @@ class EspectrosPromedio(Tarjeta):
                 ruta.lineTo(x_de(float(hz)), y_de(float(magnitud)))
             p.setPen(QPen(ACENTO, 2.5, Qt.DashDotLine, Qt.RoundCap, Qt.RoundJoin))
             p.drawPath(ruta)
-        # La primera especie queda al frente cuando las curvas coinciden.
         for indice, (especie, magnitudes) in reversed(list(enumerate(self.series.items()))):
             ruta = QPainterPath(QPointF(x_de(float(self.frecuencias[0])),
                                        y_de(float(magnitudes[0]))))
@@ -918,7 +913,6 @@ class Resultado(Tarjeta):
             p.drawText(QRectF(x, 140, ancho, 20), Qt.AlignLeft | Qt.AlignVCenter, nota)
 
 
-# ---------------- Hilos ----------------
 class Trabajo(QThread):
     listo = Signal(object)
     fallo = Signal(str)
@@ -930,11 +924,10 @@ class Trabajo(QThread):
     def run(self):
         try:
             self.listo.emit(self.funcion())
-        except Exception as e:  # se informa en la interfaz
+        except Exception as e:
             self.fallo.emit(str(e))
 
 
-# ---------------- Ventana ----------------
 def estilo():
     c = TONOS
     return f"""
@@ -979,7 +972,7 @@ class Ventana(QMainWindow):
         self.modelo = None
         self.x5 = None
         self.resultado = None
-        self.estado = "reposo"        # reposo | reproduciendo | grabando
+        self.estado = "reposo"
         self.token = 0
         self.trabajos = set()
         self.cron = QElapsedTimer()
@@ -1184,7 +1177,6 @@ class Ventana(QMainWindow):
         self.ajustes.setValue("tema", self.tema)
         self.aplicar_tema()
 
-    # ---- animación ----
     def animar(self):
         if not self.reloj.isActive():
             self.cron.restart()
@@ -1257,7 +1249,6 @@ class Ventana(QMainWindow):
             "FFT completa · eje kω₀ · escala vertical lineal"
         )
 
-    # ---- estado de la interfaz ----
     def refrescar_botones(self):
         grab = self.estado == "grabando"
         rep = self.estado == "reproduciendo"
@@ -1279,7 +1270,6 @@ class Ventana(QMainWindow):
         self.aviso.setText(texto)
         self.aviso.setVisible(bool(texto))
 
-    # ---- contrato de la fase 3 ----
     def cargar_modelo(self):
         """Lee el JSON actual; nunca inicia el entrenamiento."""
         try:
@@ -1303,7 +1293,6 @@ class Ventana(QMainWindow):
         trabajo.finished.connect(lambda: self.trabajos.discard(trabajo))
         trabajo.start()
 
-    # ---- acciones ----
     def parar_todo(self):
         if self.estado == "reproduciendo":
             self.detener()
@@ -1342,7 +1331,6 @@ class Ventana(QMainWindow):
         self.espectros_promedio.vaciar_entrada()
         self.refrescar_botones()
         if np.max(np.abs(self.x5)) < 1e-4:
-            # Esta comprobación de entrada evita clasificar el silencio.
             self.token += 1
             self.tarjeta_res.poner("sin_senal")
             self.poner_aviso("No se detectó señal suficiente para reconocer un canto.")
@@ -1377,7 +1365,6 @@ class Ventana(QMainWindow):
         self.tarjeta_res.poner(res.get("estado", "especie"), res["especie"])
         self.animar()
 
-    # ---- reproducción ----
     def alternar_reproduccion(self):
         if self.estado == "reproduciendo":
             self.detener()
@@ -1415,7 +1402,6 @@ class Ventana(QMainWindow):
         self.refrescar_botones()
         self.animar()
 
-    # ---- micrófono ----
     def alternar_microfono(self):
         if self.estado == "grabando":
             self.cancelar_grabacion()
