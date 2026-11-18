@@ -15,14 +15,19 @@ from PySide6.QtGui import (QColor, QPainter, QPen, QBrush, QFont, QLinearGradien
                            QIcon, QPixmap, QPalette)
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QPushButton, QSplitter, QSplitterHandle, QTabWidget, QToolTip, QVBoxLayout, QWidget,
+    QPushButton, QSplitter, QSplitterHandle, QTabWidget, QToolButton, QToolTip, QVBoxLayout, QWidget,
 )
 
 import fase3_reconocimiento as reconocimiento
-from config import FS, DURACION, N
+from config import FS, DURACION, N, RAIZ
 from espectros_guardados import cargar_espectros
 
 logger = logging.getLogger(__name__)
+
+IMAGENES_ESPECIE = {
+    "paloma": RAIZ / "recursos" / "imagenes" / "paloma_torcaza.png",
+    "copeton": RAIZ / "recursos" / "imagenes" / "copeton.png",
+}
 
 TEMAS = {
     "oscuro": {
@@ -494,7 +499,30 @@ class EspectrosPromedio(Tarjeta):
         self.setMinimumHeight(380)
         self.setMouseTracking(True)
         self.hover = None
+        self.rango = None
+        self.controles = False
         self.setAccessibleName("Espectros promedio y señal de entrada")
+        self.boton_menos = QToolButton(self)
+        self.boton_menos.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.boton_menos.setAutoRaise(True)
+        self.boton_menos.setIcon(self._icono_boton("menos"))
+        self.boton_menos.setIconSize(QSize(18, 18))
+        self.boton_menos.setVisible(False)
+        self.boton_menos.clicked.connect(lambda *_: self._ampliar(0.8))
+        self.boton_mas = QToolButton(self)
+        self.boton_mas.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.boton_mas.setAutoRaise(True)
+        self.boton_mas.setIcon(self._icono_boton("mas"))
+        self.boton_mas.setIconSize(QSize(18, 18))
+        self.boton_mas.setVisible(False)
+        self.boton_mas.clicked.connect(lambda *_: self._ampliar(1.25))
+        self.boton_reset = QToolButton(self)
+        self.boton_reset.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.boton_reset.setAutoRaise(True)
+        self.boton_reset.setIcon(self._icono_boton("reset"))
+        self.boton_reset.setIconSize(QSize(18, 18))
+        self.boton_reset.setVisible(False)
+        self.boton_reset.clicked.connect(lambda *_: self._restablecer())
 
     def fijar(self, modelo, frecuencias, series):
         self.modelo = modelo
@@ -502,6 +530,7 @@ class EspectrosPromedio(Tarjeta):
         self.series = series
         self.mensaje = ""
         self.hover = None
+        self.rango = None
         self.setAccessibleDescription(
             "Curvas de magnitud FFT promedio por especie y de la señal de entrada. "
             "El eje horizontal es k omega cero; las marcas indican el índice k. "
@@ -515,6 +544,7 @@ class EspectrosPromedio(Tarjeta):
         self.entrada = None
         self.mensaje = mensaje
         self.hover = None
+        self.rango = None
         QToolTip.hideText()
         self.setAccessibleDescription(mensaje)
         self.update()
@@ -531,16 +561,90 @@ class EspectrosPromedio(Tarjeta):
         self.entrada = None
         self.update()
 
+    def _rango_completo(self):
+        """Rango de frecuencias de la FFT (0 hasta la frecuencia de Nyquist)."""
+        puntos_fft = int(self.modelo["fs"] * self.modelo["duracion"])
+        return 0.0, (puntos_fft - 1) * self.modelo["fs"] / puntos_fft
+
     def _escala(self):
         area = QRectF(66, 100, max(1, self.width() - 94), max(1, self.height() - 158))
-        puntos_fft = int(self.modelo["fs"] * self.modelo["duracion"])
-        frecuencia_final = (puntos_fft - 1) * self.modelo["fs"] / puntos_fft
+        minimo, maximo = self.rango if self.rango is not None else self._rango_completo()
         tope = max(max(float(np.max(v)) for v in self.series.values()) * 1.08, 1e-12)
         if self.entrada is not None:
             tope = max(tope, float(np.max(self.entrada)) * 1.08)
-        return area, 0.0, frecuencia_final, tope
+        return area, minimo, maximo, tope
+
+    def _icono_boton(self, tipo):
+        tamano = 20
+        pm = QPixmap(tamano, tamano)
+        pm.fill(Qt.transparent)
+        pintor = QPainter(pm)
+        pintor.setRenderHint(QPainter.Antialiasing)
+        centro = QPointF(tamano / 2, tamano / 2)
+        radio = 7.0
+        color = QColor(148, 163, 184)
+        pintor.setPen(QPen(color, 2.0, Qt.SolidLine, Qt.RoundCap))
+        if tipo == "mas":
+            pintor.drawLine(centro + QPointF(-radio, 0), centro + QPointF(radio, 0))
+            pintor.drawLine(centro + QPointF(0, -radio), centro + QPointF(0, radio))
+        elif tipo == "menos":
+            pintor.drawLine(centro + QPointF(0, -radio), centro + QPointF(0, radio))
+        else:
+            recto = QRectF(2, 2, tamano - 4, tamano - 4)
+            pintor.drawEllipse(recto)
+            pintor.drawArc(recto, 90.0, 270.0)
+            ruta = QPainterPath(QPointF(10, 3.5))
+            ruta.lineTo(QPointF(16.5, 10))
+            ruta.lineTo(QPointF(11, 10))
+            pintor.setBrush(QBrush(color))
+            pintor.fillPath(ruta, QBrush(color))
+        pintor.end()
+        return QIcon(pm)
+
+    def _ampliar(self, factor):
+        if self.frecuencias is None or not self.series or self.modelo is None:
+            return
+        _, minimo, maximo, _ = self._escala()
+        centro = minimo + (maximo - minimo) / 2
+        ancho = (maximo - minimo) / factor
+        nuevo_minimo = centro - ancho / 2
+        nuevo_maximo = centro + ancho / 2
+        limite_inferior, limite_superior = self._rango_completo()
+        self.rango = (max(limite_inferior, nuevo_minimo), min(limite_superior, nuevo_maximo))
+        self.update()
+
+    def _restablecer(self):
+        if self.frecuencias is None or not self.series or self.modelo is None:
+            return
+        self.rango = None
+        self.update()
+
+    def _posicionar_controles(self):
+        if self.frecuencias is None or not self.series or self.modelo is None:
+            return
+        area, _, _, _ = self._escala()
+        tamano = 30
+        separacion = 10
+        reset_x = max(area.left(), area.right() - 3 * (tamano + separacion) - tamano)
+        self.boton_reset.setGeometry(int(reset_x), int(area.top()), tamano, tamano)
+        self.boton_menos.setGeometry(int(reset_x + tamano + separacion), int(area.top()), tamano, tamano)
+        self.boton_mas.setGeometry(int(reset_x + 2 * (tamano + separacion)), int(area.top()), tamano, tamano)
+
+    def _mostrar_controles(self):
+        for boton in (self.boton_menos, self.boton_mas, self.boton_reset):
+            boton.setVisible(True)
+        self._posicionar_controles()
+        self.update()
+
+    def _ocultar_controles(self):
+        for boton in (self.boton_menos, self.boton_mas, self.boton_reset):
+            boton.setVisible(False)
 
     def mouseMoveEvent(self, evento):
+        if self.rect().contains(evento.position().toPoint()):
+            if not self.controles:
+                self.controles = True
+                self._mostrar_controles()
         if self.frecuencias is None or not self.series:
             return
         area, minimo, maximo, tope = self._escala()
@@ -583,9 +687,33 @@ class EspectrosPromedio(Tarjeta):
 
     def leaveEvent(self, evento):
         self.hover = None
+        self.controles = False
+        self._ocultar_controles()
         QToolTip.hideText()
         self.update()
         super().leaveEvent(evento)
+
+    def resizeEvent(self, evento):
+        super().resizeEvent(evento)
+        self._posicionar_controles()
+
+    def wheelEvent(self, evento):
+        """Amplía o reduce el rango de frecuencias visible con la rueda del ratón."""
+        if self.frecuencias is None or not self.series or self.modelo is None:
+            return
+        area, minimo, maximo, _ = self._escala()
+        if not area.contains(evento.position()):
+            return
+        factor = 1.25 ** (-float(evento.angleDelta().y()) / 120.0)
+        ancho = (maximo - minimo) / factor
+        centro = minimo + (evento.position().x() - area.left()) / area.width() * (maximo - minimo)
+        posicion = (evento.position().x() - area.left()) / area.width()
+        nuevo_minimo = centro - ancho * posicion
+        nuevo_maximo = centro + ancho * (1 - posicion)
+        limite_inferior, limite_superior = self._rango_completo()
+        self.rango = (max(limite_inferior, nuevo_minimo), min(limite_superior, nuevo_maximo))
+        self.update()
+        evento.accept()
 
     def paintEvent(self, _):
         p = QPainter(self)
@@ -646,15 +774,17 @@ class EspectrosPromedio(Tarjeta):
         p.save()
         p.setClipRect(area)
         if self.entrada is not None:
-            ruta = QPainterPath(QPointF(x_de(float(self.frecuencias[0])),
-                                       y_de(float(self.entrada[0]))))
+            x_inicial = x_de(float(self.frecuencias[0]))
+            y_inicial = y_de(float(self.entrada[0]))
+            ruta = QPainterPath(QPointF(x_inicial, y_inicial))
             for hz, magnitud in zip(self.frecuencias[1:], self.entrada[1:]):
                 ruta.lineTo(x_de(float(hz)), y_de(float(magnitud)))
             p.setPen(QPen(ACENTO, 2.5, Qt.DashDotLine, Qt.RoundCap, Qt.RoundJoin))
             p.drawPath(ruta)
         for indice, (especie, magnitudes) in reversed(list(enumerate(self.series.items()))):
-            ruta = QPainterPath(QPointF(x_de(float(self.frecuencias[0])),
-                                       y_de(float(magnitudes[0]))))
+            x_inicial = x_de(float(self.frecuencias[0]))
+            y_inicial = y_de(float(magnitudes[0]))
+            ruta = QPainterPath(QPointF(x_inicial, y_inicial))
             for hz, magnitud in zip(self.frecuencias[1:], magnitudes[1:]):
                 ruta.lineTo(x_de(float(hz)), y_de(float(magnitud)))
             estilo_linea = Qt.SolidLine if indice == 0 else Qt.DashLine
@@ -831,11 +961,17 @@ class Resultado(Tarjeta):
         self.aparicion = 1.0
         self.especies = {}
         self.colores = {}
+        self.imagenes = {}
         self.setMinimumHeight(190)
 
     def configurar_modelo(self, modelo):
         self.especies = modelo["especies"]
         self.colores = colores_del_modelo(modelo)
+        self.imagenes = {}
+        for clave in self.especies:
+            ruta = IMAGENES_ESPECIE.get(clave)
+            if ruta is not None and ruta.exists():
+                self.imagenes[clave] = QPixmap(str(ruta))
 
     def poner(self, estado, especie=None):
         self.estado, self.especie, self.t, self.aparicion = estado, especie, 0.0, 0.0
@@ -853,29 +989,39 @@ class Resultado(Tarjeta):
         p = QPainter(self)
         self.dibujar_fondo(p)
         color = self.colores.get(self.especie, APAGADO)
-        c = QPointF(52, 98)
+        c = QPointF(56, 100)
+        radio = 34
         if self.estado == "analizando":
             p.setBrush(Qt.NoBrush)
             p.setPen(QPen(con_alfa(APAGADO, 60), 3))
-            p.drawEllipse(c, 22, 22)
+            p.drawEllipse(c, radio, radio)
             p.setPen(QPen(ACENTO, 3, Qt.SolidLine, Qt.RoundCap))
-            p.drawArc(QRectF(c.x() - 22, c.y() - 22, 44, 44), int(-self.t * 300 * 16), 100 * 16)
+            p.drawArc(QRectF(c.x() - radio, c.y() - radio, 2 * radio, 2 * radio),
+                      int(-self.t * 300 * 16), 100 * 16)
         elif self.estado == "especie":
-            if self.estado == "especie":
-                fase = (self.t % 2.0) / 2.0
-                if self.t < 6.0:
-                    p.setBrush(Qt.NoBrush)
-                    p.setPen(QPen(con_alfa(color, 150 * (1 - fase)), 2))
-                    p.drawEllipse(c, 22 + 14 * fase, 22 + 14 * fase)
-            p.setPen(Qt.NoPen)
-            p.setBrush(con_alfa(color, 50))
-            p.drawEllipse(c, 22, 22)
-            p.setBrush(color)
-            p.drawEllipse(c, 9, 9)
+            fase = (self.t % 2.0) / 2.0
+            if self.t < 6.0:
+                p.setBrush(Qt.NoBrush)
+                p.setPen(QPen(con_alfa(color, 150 * (1 - fase)), 2))
+                p.drawEllipse(c, radio + 14 * fase, radio + 14 * fase)
+            imagen = self.imagenes.get(self.especie)
+            if imagen is not None and not imagen.isNull():
+                lado = 2 * radio - 10
+                escala = min(lado / imagen.width(), lado / imagen.height())
+                ancho_img = imagen.width() * escala
+                alto_img = imagen.height() * escala
+                p.drawPixmap(QRectF(c.x() - ancho_img / 2, c.y() - alto_img / 2,
+                                    ancho_img, alto_img), imagen, imagen.rect())
+            else:
+                p.setPen(Qt.NoPen)
+                p.setBrush(con_alfa(color, 50))
+                p.drawEllipse(c, radio, radio)
+                p.setBrush(color)
+                p.drawEllipse(c, 12, 12)
         else:
             p.setBrush(Qt.NoBrush)
             p.setPen(QPen(con_alfa(APAGADO, 110), 2, Qt.DashLine))
-            p.drawEllipse(c, 22, 22)
+            p.drawEllipse(c, radio, radio)
 
         if self.estado == "especie":
             datos = self.especies[self.especie]
@@ -896,7 +1042,7 @@ class Resultado(Tarjeta):
         else:
             nombre, sub, nota = "Sin análisis", "Carga un audio o escucha con el micrófono", ""
         a = self.aparicion
-        x = 92
+        x = 110
         ancho = self.width() - x - 20
         p.setPen(con_alfa(TEXTO if self.estado != "vacio" else APAGADO, 255 * a))
         p.setFont(fuente(22, QFont.DemiBold))
