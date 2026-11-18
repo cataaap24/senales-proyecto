@@ -101,7 +101,6 @@ class PruebasDeFases(unittest.TestCase):
 
 
     def test_ejercicio_del_tablero(self):
-        """Ejercicio de clase: A = {(1,0,0,2), (2,1,0,0)}, 2 subbandas iguales de la FFT completa."""
         bordes = [0, 2, 4]   
         vectores = []
         for x in ([1, 0, 0, 2], [2, 1, 0, 0]):
