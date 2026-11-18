@@ -12,9 +12,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from banco_filtros import (cargar_audio, dentro_de_intervalo, distancia, energias,
-                           espectro, hay_canto, recortar, validar_bordes)
+from banco_filtros import (cargar_audio, dentro_de_intervalo, hay_canto, recortar,
+                           validar_bordes)
 from config import DURACION, FS, MODELO, PREFILTRO_FC1, PREFILTRO_FC2
+from algoritmo_reconocimiento import VECTORES, reconocer_especie
 
 
 def adaptar_modelo_provisional(modelo):
@@ -78,13 +79,8 @@ def reconocer(audio, modelo):
                               promedio ± k·desviación (nota del profesor, pág. 45)
     "especie" siempre trae la más cercana, para poder graficar la comparación.
     """
-    frecuencias, magnitud = espectro(audio)
-    energia_audio = energias(magnitud, frecuencias, modelo["bordes_hz"])
-    distancias = {
-        especie: distancia(energia_audio, vector)
-        for especie, vector in modelo["vectores_energia"].items()
-    }
-    especie = min(distancias, key=distancias.get)
+    especie, energia_audio, distancias, magnitud = reconocer_especie(recortar(audio))
+    frecuencias = np.arange(len(magnitud)) * FS / len(magnitud)
     if not hay_canto(audio):
         estado = "sin_canto"
     elif "intervalos" in modelo and not dentro_de_intervalo(
@@ -97,7 +93,7 @@ def reconocer(audio, modelo):
         "especie": especie,
         "distancias": distancias,
         "Ex": energia_audio,
-        "vectores": modelo["vectores_energia"],
+        "vectores": VECTORES,
         "bordes_hz": modelo["bordes_hz"],
         "especies": modelo["especies"],
         "mag": magnitud,
