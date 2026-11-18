@@ -1,21 +1,13 @@
-"""Operaciones compartidas por el entrenamiento y el reconocimiento.
-
-El orden sigue el método descrito en el README: acondicionar, obtener la
-magnitud de la FFT y calcular la energía de cada subbanda. Las dos fases llaman
-estas mismas funciones para evitar diferencias entre entrenamiento y uso.
-"""
-
 from math import gcd
 
 import numpy as np
 
 from config import FS, N, UMBRAL_ACTIVIDAD_DB
-from espectro import calcular_fft_completa  # noqa: F401  (también la usan los tests)
+from espectro import calcular_fft_completa  # noqa: F401 
 from preprocesamiento import acondicionar
 
 
 def cargar_audio(ruta):
-    """Lee un archivo, convierte sus canales a mono y lo lleva a FS Hz."""
     import soundfile as sf
     from scipy.signal import resample_poly
 
@@ -29,25 +21,21 @@ def cargar_audio(ruta):
 
 
 def recortar(audio):
-    """Elige N muestras consecutivas de mayor energía o completa con ceros."""
     audio = np.asarray(audio, dtype=float)
     if len(audio) < N:
         return np.pad(audio, (0, N - len(audio)))
 
-    # La suma acumulada permite comparar todas las ventanas sin repetir sumas.
     energia_acumulada = np.concatenate(([0.0], np.cumsum(audio ** 2)))
     inicio = int(np.argmax(energia_acumulada[N:] - energia_acumulada[:-N]))
     return audio[inicio:inicio + N]
 
 
 def espectro(audio):
-    """Calcula |X(k)| tras aplicar el mismo acondicionamiento en ambas fases."""
     audio_acondicionado = acondicionar(recortar(audio))
     return calcular_fft_completa(audio_acondicionado, FS)
 
 
 def validar_bordes(bordes):
-    """Exige entre tres y ocho subbandas ordenadas dentro de Nyquist."""
     bordes = np.asarray(bordes, dtype=float)
     if (bordes.ndim != 1 or not 4 <= len(bordes) <= 9
             or not np.all(np.isfinite(bordes))
@@ -60,7 +48,6 @@ def validar_bordes(bordes):
 
 
 def energias(magnitud, frecuencias, bordes):
-    """Aplica E_i = (1/L_i) * sum(|X(k)|²) en cada subbanda."""
     bordes = validar_bordes(bordes)
     magnitud = np.asarray(magnitud, dtype=float)
     frecuencias = np.asarray(frecuencias, dtype=float)
@@ -78,17 +65,10 @@ def energias(magnitud, frecuencias, bordes):
 
 
 def distancia(energia_audio, energia_especie):
-    """Suma las diferencias absolutas entre energías de subbandas."""
     return float(np.sum(np.abs(energia_audio - energia_especie)))
 
 
 def rango_dinamico(audio):
-    """Rango dinámico en dB de la señal filtrada (sin normalizar), en cuadros de 50 ms.
-
-    Compara la energía de los cuadros más fuertes (percentil 95) con la de los más débiles
-    (percentil 10). Un canto alterna sílabas y pausas, así que su rango es alto (en el banco,
-    mínimo 11 dB); el silencio, el ventilador o el zumbido eléctrico dan menos de 2 dB.
-    """
     senal = acondicionar(recortar(audio), normalizar=False)
     largo = int(0.05 * FS)
     cuadros = len(senal) // largo
@@ -97,12 +77,10 @@ def rango_dinamico(audio):
 
 
 def hay_canto(audio):
-    """True si la señal tiene la variación de energía propia de un canto."""
     return rango_dinamico(audio) >= UMBRAL_ACTIVIDAD_DB
 
 
 def dentro_de_intervalo(energia_audio, intervalo):
-    """Nota del profesor: intervalo de energía = promedio ± k·desviación, en cada subbanda (dB)."""
     energia_db = 10 * np.log10(np.asarray(energia_audio, dtype=float) + 1e-20)
     media = np.asarray(intervalo["media_db"], dtype=float)
     ancho = intervalo["k"] * np.maximum(np.asarray(intervalo["desviacion_db"], dtype=float),
