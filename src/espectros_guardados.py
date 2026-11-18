@@ -1,5 +1,3 @@
-"""Guarda y lee las curvas promedio que usa la interfaz."""
-
 import hashlib
 import json
 from pathlib import Path
@@ -15,7 +13,6 @@ MAX_PUNTOS = 4096
 
 def guardar_espectros(modelo, frecuencias, promedios, destino=RUTA_ESPECTROS,
                      ruta_modelo=MODELO):
-    """Exporta la FFT completa, agrupada solo para dibujarla con fluidez."""
     frecuencias = np.asarray(frecuencias, dtype=float)
     bordes = np.asarray(modelo["bordes_hz"], dtype=float)
     puntos_fft = int(modelo["fs"] * modelo["duracion"])
@@ -58,7 +55,6 @@ def guardar_espectros(modelo, frecuencias, promedios, destino=RUTA_ESPECTROS,
 
 
 def cargar_espectros(modelo, ruta=RUTA_ESPECTROS, ruta_modelo=MODELO):
-    """Valida las series de la gráfica sin calcular FFT ni modificar el modelo."""
     ruta = Path(ruta)
     if not ruta.is_file():
         raise FileNotFoundError(
